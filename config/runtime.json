@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "honeychart_endpoint": "http://127.0.0.1:8081/custom_build_endpoint",
+  "state_root": "/var/lib/thesis-honeypots",
+  "node_hostname": "mod",
+  "image_pins": "../image-pins.yaml"
+}
