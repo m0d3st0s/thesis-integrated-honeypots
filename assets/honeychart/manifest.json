@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/parasecurity/honeychart.git",
+  "commit": "6522d81d71a38df86de9da409a83acbbcd3a267e",
+  "observed_node_version": "v24.21.0",
+  "observed_npm_version": "11.19.0",
+  "files": {
+    "compatibility.patch": "7b9791e4d6847d602e3b96f0710b2e87921ffff9628b416132b312c4084cb0e2",
+    "package-lock.json": "6713c9e5ca1bdefc654cf46c292599cee757f9781f4779178e0b6fc992da713c"
+  },
+  "notes": [
+    "host.json is configured separately.",
+    "Observed runtime versions are not a tested compatibility range.",
+    "A clean dependency installation remains to be verified."
+  ]
+}
