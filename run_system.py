@@ -19,18 +19,24 @@ def write_json(path, value):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Discover services and prepare or upgrade honeypot releases."
+        description="Discover services and prepare, install, or upgrade honeypot releases."
     )
     parser.add_argument("--scan-config", required=True, type=Path)
     parser.add_argument("--catalog", required=True, type=Path)
     parser.add_argument("--deployment-config", required=True, type=Path)
     parser.add_argument("--runtime-config", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
+        "--mode", choices=("prepare", "install", "upgrade"),
+        help="Action after discovery; defaults to prepare.",
+    )
+    modes.add_argument(
         "--deploy", action="store_true",
-        help="Upgrade existing releases after successful preparation and preflight.",
+        help="Compatibility alias for --mode upgrade.",
     )
     args = parser.parse_args()
+    mode = args.mode or ("upgrade" if args.deploy else "prepare")
 
     os.umask(0o077)
     project = Path(__file__).resolve().parent
@@ -69,13 +75,16 @@ def main():
             "schema_version": 1,
             "started_at": now(),
             "status": "running",
-            "deployment_requested": args.deploy,
+            "deployment_requested": mode != "prepare",
+            "mode": mode,
             "input_sources": {key: str(path) for key, path in inputs.items()},
             "stages": [],
             "limitations": [
                 "Discovery covers configured ports and responding devices only.",
-                "Deployment currently upgrades existing compatible releases.",
-                "Release upgrades are sequential, not atomic.",
+                "Install mode requires absent releases and empty dedicated storage roots.",
+                "Upgrade mode requires existing compatible releases or supported retained state.",
+                "Release operations are sequential, not atomic.",
+                "Cluster and namespace setup are prerequisites.",
                 "Preparation and deployment use their own pipeline locks.",
                 "Reporting is collected separately through the reporting workflow.",
             ],
@@ -135,7 +144,15 @@ def main():
             "--output", str(prepared),
         ])
 
-        if args.deploy:
+        if mode == "install":
+            stage("installation", [
+                sys.executable, str(project / "install_prepared.py"),
+                str(prepared),
+                "--output", str(folder / "installation"),
+                "--install",
+            ])
+            manifest["status"] = "installed"
+        elif mode == "upgrade":
             stage("deployment", [
                 sys.executable, str(project / "deploy_prepared.py"),
                 str(prepared),
@@ -149,7 +166,7 @@ def main():
         save()
         print("\nSystem run status:", manifest["status"])
         print("Evidence:", folder)
-        if not args.deploy:
+        if mode == "prepare":
             print("No deployment performed.")
         return 0
 
