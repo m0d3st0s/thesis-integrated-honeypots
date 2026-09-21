@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule daily honeypot reporting
+
+[Timer]
+OnCalendar=*-*-* 00:10:00 UTC
+Persistent=true
+Unit=thesis-daily-report.service
+
+[Install]
+WantedBy=timers.target

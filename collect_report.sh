@@ -31,7 +31,7 @@ if parse(sys.argv[1]) >= parse(sys.argv[2]):
 PY
 
 test -f "$PROJECT_DIR/controlled-test-events-mixed.txt"
-sudo -v
+umask 077
 
 mkdir -p "$HOME/thesis/reports"
 REPORT_DIR=$(mktemp -d "$HOME/thesis/reports/report-XXXXXXXX")
@@ -49,7 +49,7 @@ kubectl get pods -n "$NAMESPACE" \
     > "$REPORT_DIR/pods.json"
 
 echo "2. Collecting current logs and a database snapshot..."
-sudo python3 - "$COWRIE_LOG" "$DATABASE" "$REPORT_DIR" <<'PY'
+python3 - "$COWRIE_LOG" "$DATABASE" "$REPORT_DIR" <<'PY'
 import json
 import os
 import sqlite3
@@ -60,14 +60,10 @@ from pathlib import Path
 log_path = Path(sys.argv[1])
 database = Path(sys.argv[2])
 folder = Path(sys.argv[3])
-uid = int(os.environ["SUDO_UID"])
-gid = int(os.environ["SUDO_GID"])
 
 def now():
     return datetime.now(timezone.utc).isoformat()
 
-def owned(path):
-    os.chown(path, uid, gid)
 
 metadata = {
     "schema_version": 1,
@@ -169,7 +165,6 @@ for name in names:
 
 snapshot = folder / "cowrie-snapshot.jsonl"
 snapshot.write_bytes(b"".join(chunks))
-owned(snapshot)
 
 metadata["cowrie_files"] = files
 metadata["cowrie_trailing_bytes_omitted"] = omitted_total
@@ -190,12 +185,10 @@ finally:
     backup.close()
     source.close()
 
-owned(destination)
 metadata["dionaea_backup_finished"] = now()
 
 path = folder / "collection.json"
 path.write_text(json.dumps(metadata, indent=2) + "\n")
-owned(path)
 print("Snapshots collected; Dionaea integrity verified.")
 PY
 
@@ -278,9 +271,9 @@ text = "\n".join(lines) + "\n"
 print(text)
 PY
 
-date -u +%Y-%m-%dT%H:%M:%SZ > "$REPORT_DIR/report-completed.txt"
 python3 "$PROJECT_DIR/attach_service_history.py" \
     "$REPORT_DIR" \
     --history-root "$HOME/thesis/runs"
 
+date -u +%Y-%m-%dT%H:%M:%SZ > "$REPORT_DIR/report-completed.txt"
 echo "Report completed: $REPORT_DIR"

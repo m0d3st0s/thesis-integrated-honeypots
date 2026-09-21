@@ -1,0 +1,15 @@
+[Unit]
+Description=Generate the previous UTC day's honeypot report
+Wants=network-online.target
+After=network-online.target k3s.service
+
+[Service]
+Type=oneshot
+User=mod
+Group=mod
+Environment=HOME=/home/mod
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/home/mod/thesis/integrated-system
+ExecStart=/home/mod/thesis/integrated-system/daily_report.sh
+UMask=0077
+TimeoutStartSec=10min
