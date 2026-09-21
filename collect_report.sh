@@ -1,24 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 2 ] && [ "$#" -ne 4 ]; then
-    echo "Usage: $0 SINCE UNTIL [--output NEW_DIRECTORY]" >&2
-    echo "Example: $0 2026-09-20T00:00:00Z 2026-09-21T00:00:00Z" >&2
+if [ "$#" -lt 2 ]; then
+    echo "Usage: $0 SINCE UNTIL [--output DIR] [--deployment NAME --namespace NS --database PATH --database-id ID --cowrie-log PATH --labels PATH --history-root PATH --reports-root PATH]" >&2
     exit 1
 fi
-
-if [ "$#" -eq 4 ] && [ "$3" != "--output" ]; then
-    echo "Expected --output NEW_DIRECTORY" >&2
-    exit 1
-fi
-
 SINCE="$1"
 UNTIL="$2"
+shift 2
 PROJECT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
+# Legacy defaults remain for existing direct callers. Configured reports supply all settings.
 RELEASE="auto-mixed-01"
 NAMESPACE="honeypots"
-DATABASE="/var/lib/thesis-honeypots/$RELEASE/dionaea/dionaea.sqlite"
-COWRIE_LOG="/var/log/honeypots/$RELEASE/cowrie/cowrie.json"
+DATABASE="/var/lib/thesis-honeypots/auto-mixed-01/dionaea/dionaea.sqlite"
+DATABASE_ID="auto-mixed-01-initial"
+COWRIE_LOG="/var/log/honeypots/auto-mixed-01/cowrie/cowrie.json"
+LABELS="$PROJECT_DIR/controlled-test-events-mixed.txt"
+HISTORY_ROOT="$HOME/thesis/runs"
+REPORTS_ROOT="$HOME/thesis/reports"
+REPORT_DIR=""
+while [ "$#" -gt 0 ]; do
+    if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+        echo "Missing option value: $1" >&2
+        exit 1
+    fi
+    case "$1" in
+        --output) REPORT_DIR="$2" ;;
+        --deployment) RELEASE="$2" ;;
+        --namespace) NAMESPACE="$2" ;;
+        --database) DATABASE="$2" ;;
+        --database-id) DATABASE_ID="$2" ;;
+        --cowrie-log) COWRIE_LOG="$2" ;;
+        --labels) LABELS="$2" ;;
+        --history-root) HISTORY_ROOT="$2" ;;
+        --reports-root) REPORTS_ROOT="$2" ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+    shift 2
+done
 
 # Validate the window before collecting anything.
 python3 - "$SINCE" "$UNTIL" <<'PY'
@@ -35,15 +54,14 @@ if parse(sys.argv[1]) >= parse(sys.argv[2]):
     raise SystemExit("SINCE must be earlier than UNTIL.")
 PY
 
-test -f "$PROJECT_DIR/controlled-test-events-mixed.txt"
+test -f "$LABELS"
 umask 077
 
-if [ "$#" -eq 4 ]; then
-    REPORT_DIR="$4"
+if [ -n "$REPORT_DIR" ]; then
     mkdir -- "$REPORT_DIR"
 else
-    mkdir -p "$HOME/thesis/reports"
-    REPORT_DIR=$(mktemp -d "$HOME/thesis/reports/report-XXXXXXXX")
+    mkdir -p "$REPORTS_ROOT"
+    REPORT_DIR=$(mktemp -d "$REPORTS_ROOT/report-XXXXXXXX")
 fi
 echo "Report directory: $REPORT_DIR"
 trap 'echo "Collection failed. Inspect: $REPORT_DIR" >&2' ERR
@@ -59,7 +77,7 @@ kubectl get pods -n "$NAMESPACE" \
     > "$REPORT_DIR/pods.json"
 
 echo "2. Collecting current logs and a database snapshot..."
-python3 - "$COWRIE_LOG" "$DATABASE" "$REPORT_DIR" <<'PY'
+python3 - "$COWRIE_LOG" "$DATABASE" "$REPORT_DIR" "$DATABASE_ID" "$RELEASE" "$NAMESPACE" <<'PY'
 import json
 import os
 import sqlite3
@@ -79,9 +97,11 @@ metadata = {
     "schema_version": 1,
     "cowrie_source": str(log_path),
     "dionaea_source": str(database),
-    "database_id": "auto-mixed-01-initial",
+    "database_id": sys.argv[4],
+    "deployment": sys.argv[5],
+    "namespace": sys.argv[6],
     "limitations": [
-        "Collects cowrie.json and uncompressed cowrie.json.YYYY-MM-DD files; deleted, compressed, or differently named logs are not included.",
+        "Collects the configured current log and uncompressed YYYY-MM-DD rotations; deleted, compressed, or differently named logs are not included.",
         "The two sources are collected sequentially, not atomically.",
         "Collection times do not establish continuous monitoring coverage.",
     ],
@@ -94,24 +114,25 @@ import re
 import stat
 
 folder_path = log_path.parent
-rotated_pattern = re.compile(r"cowrie\.json\.\d{4}-\d{2}-\d{2}")
+current_name = log_path.name
+rotated_pattern = re.compile(re.escape(current_name) + r"\.\d{4}-\d{2}-\d{2}")
 
 def inventory():
     result = {}
     for path in folder_path.iterdir():
-        if path.name != "cowrie.json" and not rotated_pattern.fullmatch(path.name):
+        if path.name != current_name and not rotated_pattern.fullmatch(path.name):
             continue
         info = path.lstat()
         if not stat.S_ISREG(info.st_mode):
             raise SystemExit("Expected a regular log file: " + str(path))
         result[path.name] = (info.st_dev, info.st_ino, info.st_size)
-    if "cowrie.json" not in result:
+    if current_name not in result:
         raise SystemExit("Current Cowrie log is missing.")
     return result
 
 before = inventory()
-names = sorted(name for name in before if name != "cowrie.json")
-names.append("cowrie.json")
+names = sorted(name for name in before if name != current_name)
+names.append(current_name)
 
 chunks = []
 files = []
@@ -133,7 +154,7 @@ for name in names:
     complete = raw[:end]
     omitted = len(raw) - end
 
-    if omitted and name != "cowrie.json":
+    if omitted and name != current_name:
         raise SystemExit("Incomplete final line in rotated log: " + name)
 
     records = 0
@@ -170,7 +191,7 @@ for name in names:
         raise SystemExit("Cowrie log identity changed; rerun.")
     if after[name][2] < before[name][2]:
         raise SystemExit("Cowrie log was truncated; rerun.")
-    if name != "cowrie.json" and after[name][2] != before[name][2]:
+    if name != current_name and after[name][2] != before[name][2]:
         raise SystemExit("A rotated Cowrie log changed; rerun.")
 
 snapshot = folder / "cowrie-snapshot.jsonl"
@@ -205,12 +226,12 @@ PY
 echo "3. Normalizing and classifying connections..."
 python3 "$PROJECT_DIR/export_dionaea.py" \
     "$REPORT_DIR/dionaea.sqlite" \
-    --database-id auto-mixed-01-initial \
+    --database-id "$DATABASE_ID" \
     --deployment "$RELEASE" \
     > "$REPORT_DIR/dionaea-normalized.jsonl"
 
 # Preserve the labels used for this particular report.
-cp "$PROJECT_DIR/controlled-test-events-mixed.txt" \
+cp "$LABELS" \
     "$REPORT_DIR/controlled-test-events.txt"
 
 TEST_ARGS=()
@@ -283,7 +304,8 @@ PY
 
 python3 "$PROJECT_DIR/attach_service_history.py" \
     "$REPORT_DIR" \
-    --history-root "$HOME/thesis/runs"
+    --history-root "$HISTORY_ROOT" \
+    --namespace "$NAMESPACE"
 
 date -u +%Y-%m-%dT%H:%M:%SZ > "$REPORT_DIR/report-completed.txt"
 echo "Report completed: $REPORT_DIR"

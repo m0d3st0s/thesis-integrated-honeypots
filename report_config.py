@@ -1,0 +1,141 @@
+"""Collect combined reports with explicit source identities and local source paths."""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+
+def load_config(path):
+    path = path.expanduser().resolve()
+    config = json.loads(path.read_text())
+    if config.get('schema_version') != 2:
+        raise ValueError('Expected reporting configuration schema_version 2.')
+
+    def string(mapping, key):
+        value = mapping.get(key)
+        if not isinstance(value, str) or not value.strip() or '\0' in value or '\n' in value:
+            raise ValueError('Missing or invalid setting: ' + key)
+        return value
+
+    def resolve(value):
+        p = Path(value).expanduser()
+        return str((p if p.is_absolute() else path.parent / p).resolve())
+
+    result = {'schema_version': 2, 'reports_root': resolve(string(config, 'reports_root'))}
+    for name, paths, ids in (
+        ('mixed', ('database', 'cowrie_log', 'labels', 'history_root'), ('database_id',)),
+        ('conpot', ('log', 'labels'), ('log_id',)),
+    ):
+        source = config[name]
+        section = {}
+        for key in ('deployment', 'namespace'):
+            value = string(source, key)
+            if not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', value):
+                raise ValueError('Invalid Kubernetes name: ' + value)
+            section[key] = value
+        for key in ids:
+            value = string(source, key)
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', value):
+                raise ValueError('Source identifiers must use letters, digits, dots, underscores or hyphens.')
+            section[key] = value
+        for key in paths:
+            section[key] = resolve(string(source, key))
+        result[name] = section
+    kubeconfig = config.get('kubeconfig')
+    if kubeconfig is not None:
+        result['kubeconfig'] = resolve(string(config, 'kubeconfig'))
+        if not Path(result['kubeconfig']).is_file():
+            raise ValueError('Configured kubeconfig is missing.')
+    for name in ('mixed', 'conpot'):
+        if not Path(result[name]['labels']).is_file():
+            raise ValueError('Label file is missing for ' + name)
+    if not Path(result['mixed']['history_root']).is_dir():
+        raise ValueError('Configured history root must be an existing directory; it may be empty.')
+    return result
+
+
+def parse_time(value):
+    parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if parsed.tzinfo is None:
+        raise ValueError('Timestamps must include a timezone.')
+    return parsed.astimezone(timezone.utc)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('since', nargs='?')
+    parser.add_argument('until', nargs='?')
+    parser.add_argument('--config', type=Path, required=True)
+    parser.add_argument('--output', type=Path)
+    parser.add_argument('--previous-day', action='store_true')
+    args = parser.parse_args()
+    if args.previous_day:
+        if args.since is not None or args.until is not None:
+            parser.error('--previous-day cannot be combined with timestamps.')
+        today = datetime.now(timezone.utc).date()
+        args.since = str(today - timedelta(days=1)) + 'T00:00:00Z'
+        args.until = str(today) + 'T00:00:00Z'
+    elif args.since is None or args.until is None:
+        parser.error('Supply SINCE UNTIL or --previous-day.')
+    status_path = None
+    status = None
+    try:
+        os.umask(0o077)
+        if parse_time(args.since) >= parse_time(args.until):
+            raise ValueError('SINCE must be earlier than UNTIL.')
+        config = load_config(args.config)
+        if args.output:
+            parent = args.output.expanduser().resolve()
+            parent.mkdir(parents=True, exist_ok=False)
+        else:
+            root = Path(config['reports_root'])
+            root.mkdir(parents=True, exist_ok=True)
+            parent = Path(tempfile.mkdtemp(prefix='configured-report-', dir=root))
+        (parent / 'reporting-config-resolved.json').write_text(json.dumps(config, indent=2) + '\n')
+        status_path = parent / 'configured-report-result.json'
+        status = {'schema_version': 1, 'status': 'running', 'since': args.since, 'until': args.until,
+                  'configuration_source': str(args.config.expanduser().resolve()),
+                  'limitations': ['Collectors require filesystem access to configured log and database paths.',
+                                  'A cluster kubeconfig alone does not provide remote filesystem access.',
+                                  'This configuration covers one mixed release and one Conpot release.',
+                                  'Source IDs must change when a database is replaced or a Conpot log is reset.']}
+        status_path.write_text(json.dumps(status, indent=2) + '\n')
+        command = [sys.executable, str(Path(__file__).resolve().parent / 'collect_combined_report.py'),
+                   args.since, args.until, '--output', str(parent / 'report')]
+        mixed = config['mixed']
+        for option, key in (('deployment', 'deployment'), ('namespace', 'namespace'),
+                            ('database', 'database'), ('database-id', 'database_id'),
+                            ('cowrie-log', 'cowrie_log'), ('labels', 'labels'), ('history-root', 'history_root')):
+            command += ['--mixed-' + option, mixed[key]]
+        command += ['--mixed-reports-root', config['reports_root']]
+        conpot = config['conpot']
+        for option, key in (('deployment', 'deployment'), ('namespace', 'namespace'),
+                            ('log', 'log'), ('log-id', 'log_id'), ('labels', 'labels')):
+            command += ['--conpot-' + option, conpot[key]]
+        env = os.environ.copy()
+        if 'kubeconfig' in config:
+            env['KUBECONFIG'] = config['kubeconfig']
+        print('Configured report directory:', parent, flush=True)
+        subprocess.run(command, env=env, check=True, timeout=1300)
+        manifest = json.loads((parent / 'report/collection-manifest.json').read_text())
+        if manifest['status'] != 'completed':
+            raise ValueError('Combined report did not complete.')
+        status['status'] = 'completed'
+        status_path.write_text(json.dumps(status, indent=2) + '\n')
+        print((parent / 'report/report.txt').read_text())
+        return 0
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+        if status_path is not None:
+            status.update(status='failed', error=str(exc))
+            status_path.write_text(json.dumps(status, indent=2) + '\n')
+        print('Configured report failed: ' + str(exc), file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

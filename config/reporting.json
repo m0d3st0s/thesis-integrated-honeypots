@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "reports_root": "~/thesis/reports",
   "conpot": {
     "deployment": "ics-modbus-01",
@@ -7,5 +7,15 @@
     "log": "/var/log/honeypots/ics-modbus-01/conpot/conpot.json",
     "log_id": "ics-modbus-01-conpot-json-001",
     "labels": "../controlled-test-events-conpot.json"
+  },
+  "kubeconfig": "~/.kube/thesis-k3s.yaml",
+  "mixed": {
+    "deployment": "auto-mixed-01",
+    "namespace": "honeypots",
+    "database": "/var/lib/thesis-honeypots/auto-mixed-01/dionaea/dionaea.sqlite",
+    "database_id": "auto-mixed-01-initial",
+    "cowrie_log": "/var/log/honeypots/auto-mixed-01/cowrie/cowrie.json",
+    "labels": "../controlled-test-events-mixed.txt",
+    "history_root": "~/thesis/runs"
   }
 }

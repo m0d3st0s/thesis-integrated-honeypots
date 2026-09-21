@@ -67,7 +67,17 @@ def main():
     parser.add_argument("--conpot-namespace", required=True)
     parser.add_argument("--conpot-log-id", required=True)
     parser.add_argument("--conpot-labels", required=True, type=Path)
+    mixed_options = ("deployment", "namespace", "database", "database-id",
+                     "cowrie-log", "labels", "history-root", "reports-root")
+    for option in mixed_options:
+        parser.add_argument("--mixed-" + option)
     args = parser.parse_args()
+    supplied = [getattr(args, "mixed_" + option.replace("-", "_"))
+                for option in mixed_options]
+    if any(value is not None for value in supplied) and not all(supplied):
+        parser.error("Supply all --mixed-* settings together.")
+    mixed_arguments = [argument for option, value in zip(mixed_options, supplied)
+                       if value is not None for argument in ("--" + option, value)]
 
     try:
         if parse_time(args.since) >= parse_time(args.until):
@@ -122,7 +132,7 @@ def main():
             "bash", str(project / "collect_report.sh"),
             args.since, args.until,
             "--output", str(folder / "ssh-http"),
-        ], folder / "ssh-http-collector.log")
+        ] + mixed_arguments, folder / "ssh-http-collector.log")
         if not (folder / "ssh-http/report-completed.txt").is_file():
             raise ValueError("SSH/HTTP completion marker is missing.")
 
