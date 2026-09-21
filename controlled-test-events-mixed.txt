@@ -9,3 +9,4 @@ dionaea:auto-mixed-01-initial:connection:5
 dionaea:auto-mixed-01-initial:connection:6
 dionaea:auto-mixed-01-initial:connection:7
 cowrie:auto-mixed-01-84c868d8cf-57h22:093e7da81678:connect
+dionaea:auto-mixed-01-initial:connection:8

@@ -1,4 +1,5 @@
 import argparse
+from inspect_retained_dionaea import inspect_retained_dionaea
 import fcntl
 import hashlib
 import json
@@ -36,6 +37,7 @@ def main():
     parser.add_argument("prepared", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--lock-fd", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--allow-retained-dionaea", action="store_true")
     args = parser.parse_args()
 
     project = Path(__file__).resolve().parent
@@ -205,9 +207,17 @@ def main():
 
                 for hp in request["honeypots"]["names"]:
                     if hp not in containers:
+                        if hp == "dionaea" and args.allow_retained_dionaea:
+                            checks[hp] = inspect_retained_dionaea(
+                                namespace,
+                                runtime["node_hostname"],
+                                state_root / name / hp,
+                                request["honeypots"][hp]["volumes"][0],
+                                release_dir / "retained-dionaea",
+                            )
+                            continue
                         raise ValueError(
                             "Selected container is not currently running: " + hp
-                            + ". This preflight supports existing-container upgrades."
                         )
                     container = containers[hp]
                     mounts = {

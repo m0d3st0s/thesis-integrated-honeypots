@@ -75,7 +75,10 @@ def main():
                     sys.executable, str(project / "preflight_run.py"),
                     str(prepared), "--output", str(destination),
                     "--lock-fd", str(lock.fileno()),
-                ], pass_fds=(lock.fileno(),), check=True, timeout=600)
+                ] + (
+                    ["--allow-retained-dionaea"]
+                    if label == "preflight-before" else []
+                ), pass_fds=(lock.fileno(),), check=True, timeout=600)
                 report = json.loads(
                     (destination / "preflight.json").read_text()
                 )
