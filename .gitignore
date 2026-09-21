@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.mixed-pipeline.lock
+*.before-*
+*.sqlite
+*.sqlite-*
+*.jsonl
+.env

@@ -1,0 +1,11 @@
+honeypots:
+  cowrie:
+    image:
+      repository: ghcr.io/parasecurity/cowrie
+      tag: "latest@sha256:c2367443a0a0b983b5238314a03808f151523789989c7f07f021bc1971d6565e"
+      pullPolicy: IfNotPresent
+  dionaea:
+    image:
+      repository: ghcr.io/parasecurity/dionaea
+      tag: "latest@sha256:55150e2a9ef56e1b304129195affc0dc335ed35868dfde6de0ff1f2358d00515"
+      pullPolicy: IfNotPresent

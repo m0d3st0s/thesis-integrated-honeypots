@@ -1,0 +1,11 @@
+dionaea:auto-mixed-01-initial:connection:1
+dionaea:auto-mixed-01-initial:connection:2
+dionaea:auto-mixed-01-initial:connection:3
+dionaea:auto-mixed-01-initial:connection:4
+cowrie:auto-mixed-01-cc46dd4c5-8xxz5:390fe7a98181:connect
+cowrie:auto-mixed-01-84c868d8cf-lvpcw:d7abfe6f7fcf:connect
+cowrie:auto-mixed-01-84c868d8cf-lvpcw:fa5ce749ee4e:connect
+dionaea:auto-mixed-01-initial:connection:5
+dionaea:auto-mixed-01-initial:connection:6
+dionaea:auto-mixed-01-initial:connection:7
+cowrie:auto-mixed-01-84c868d8cf-57h22:093e7da81678:connect
