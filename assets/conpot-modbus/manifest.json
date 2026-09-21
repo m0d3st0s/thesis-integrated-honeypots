@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "recipe": "conpot-modbus-v1",
+  "image": "ghcr.io/parasecurity/conpot@sha256:9837ce01a254bd5dc3c92ea85741135a04f03aab27c0642b0ea728ecd4a128ca",
+  "package_directory": "/home/conpot/.local/lib/python3.8/site-packages/conpot",
+  "container_port": 5020,
+  "log_mount": "/conpot-json-logs",
+  "sensorid_placeholder": "__RELEASE_NAME__",
+  "files": {
+    "conpot-lab.cfg": "236f5c28140110068254529336ca292798f70fb632130b023f4417c5f6715ced",
+    "conpot-json-log.py": "a9941824750246279fc4d67b5a906ffd7905f60ed3071db0d06976530eeda4ed",
+    "modbus-only-core.xml": "3faa53a35a462df2cf89fefcfc4dbc2457f490e842c298d484c2486ac1092539",
+    "modbus-only-protocol.xml": "1de872fc16f3750739bdcfde716ffd0c3cb20b6cb6983a7345571d37b2060da9"
+  },
+  "limitations": [
+    "This recipe is tied to the specified image and package layout.",
+    "The template emulates Modbus; it does not clone the discovered device.",
+    "The logger fix preserves payloads but does not change session semantics."
+  ]
+}

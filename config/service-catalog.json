@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "transport": "tcp",
+      "service": "ssh",
+      "honeypot": "cowrie",
+      "required_script": null
+    },
+    {
+      "transport": "tcp",
+      "service": "http",
+      "honeypot": "dionaea",
+      "required_script": null
+    },
+    {
+      "transport": "tcp",
+      "service": "modbus",
+      "honeypot": "conpot",
+      "required_script": "modbus-discover"
+    }
+  ]
+}

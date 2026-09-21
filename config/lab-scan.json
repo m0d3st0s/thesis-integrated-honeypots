@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "network": "192.168.77.0/24",
+  "interface": "enp0s8",
+  "scanner_ip": "192.168.77.10",
+  "exclude_ips": ["192.168.77.10"],
+  "tcp_ports": [22, 80, 443, 445, 502, 1502],
+  "modbus_probe_ports": [502, 1502]
+}

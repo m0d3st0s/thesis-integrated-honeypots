@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "events": [
+    {
+      "event_id": "conpot:ics-modbus-01-conpot-json-001:2863:6fa3c9d477ce21a88286214c7fd53271cf905ec153891810436f4d42c377af7a",
+      "deployment": "ics-modbus-01",
+      "classification": "controlled_test",
+      "reason": "Operator-run Read Coils test; client endpoint, request, and response matched the supplied Conpot records.",
+      "supporting_payload_event_id": "conpot:ics-modbus-01-conpot-json-001:3179:5550b337249ee3c3031f09555ef33146cde0143774a40e4664c0c26cb3eb78f4",
+      "client_evidence": {
+        "started_at": "2026-09-21T14:33:15.512022+00:00",
+        "source_ip": "192.168.77.20",
+        "source_port": 52534,
+        "destination_ip": "192.168.77.10",
+        "destination_port": 32124,
+        "request_hex": "000100000006010100010008",
+        "response_payload_hex": "010157",
+        "provenance": "Operator terminal output supplied in this conversation"
+      }
+    }
+  ]
+}

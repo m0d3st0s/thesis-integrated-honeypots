@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "namespace": "honeypots",
+  "log_root": "/var/log/honeypots",
+  "service_type": "NodePort",
+  "mappings": [
+    {
+      "honeypot": "cowrie",
+      "service": "ssh",
+      "transport": "tcp",
+      "release": "auto-mixed-01",
+      "service_port": 22,
+      "container_port": 2222
+    },
+    {
+      "honeypot": "dionaea",
+      "service": "http",
+      "transport": "tcp",
+      "release": "auto-mixed-01",
+      "service_port": 80,
+      "container_port": 80
+    },
+    {
+      "honeypot": "conpot",
+      "service": "modbus",
+      "transport": "tcp",
+      "release": "ics-modbus-01",
+      "service_port": 502,
+      "container_port": 5020
+    }
+  ]
+}

@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 SINCE UNTIL" >&2
+if [ "$#" -ne 2 ] && [ "$#" -ne 4 ]; then
+    echo "Usage: $0 SINCE UNTIL [--output NEW_DIRECTORY]" >&2
     echo "Example: $0 2026-09-20T00:00:00Z 2026-09-21T00:00:00Z" >&2
+    exit 1
+fi
+
+if [ "$#" -eq 4 ] && [ "$3" != "--output" ]; then
+    echo "Expected --output NEW_DIRECTORY" >&2
     exit 1
 fi
 
 SINCE="$1"
 UNTIL="$2"
-PROJECT_DIR="$HOME/thesis/integrated-system"
+PROJECT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 RELEASE="auto-mixed-01"
 NAMESPACE="honeypots"
 DATABASE="/var/lib/thesis-honeypots/$RELEASE/dionaea/dionaea.sqlite"
@@ -33,8 +38,13 @@ PY
 test -f "$PROJECT_DIR/controlled-test-events-mixed.txt"
 umask 077
 
-mkdir -p "$HOME/thesis/reports"
-REPORT_DIR=$(mktemp -d "$HOME/thesis/reports/report-XXXXXXXX")
+if [ "$#" -eq 4 ]; then
+    REPORT_DIR="$4"
+    mkdir -- "$REPORT_DIR"
+else
+    mkdir -p "$HOME/thesis/reports"
+    REPORT_DIR=$(mktemp -d "$HOME/thesis/reports/report-XXXXXXXX")
+fi
 echo "Report directory: $REPORT_DIR"
 trap 'echo "Collection failed. Inspect: $REPORT_DIR" >&2' ERR
 

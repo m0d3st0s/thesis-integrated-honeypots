@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "reports_root": "~/thesis/reports",
+  "conpot": {
+    "deployment": "ics-modbus-01",
+    "namespace": "honeypots",
+    "log": "/var/log/honeypots/ics-modbus-01/conpot/conpot.json",
+    "log_id": "ics-modbus-01-conpot-json-001",
+    "labels": "../controlled-test-events-conpot.json"
+  }
+}
