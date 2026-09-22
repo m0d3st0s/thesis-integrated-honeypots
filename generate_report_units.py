@@ -61,7 +61,7 @@ def main():
             raise ValueError('Every tool PATH entry must be absolute and nonempty.')
         service = '\n'.join([
             '[Unit]',
-            'Description=Generate the previous configured calendar day\'s configured honeypot report',
+            'Description=Generate honeypot report for the previous configured calendar day',
             'Wants=network-online.target',
             'After=network-online.target',
             '', '[Service]', 'Type=oneshot',

@@ -11,6 +11,6 @@
   "notes": [
     "host.json is configured separately.",
     "Observed runtime versions are not a tested compatibility range.",
-    "A clean dependency installation remains to be verified."
+    "Pinned source, compatibility patch, and npm ci with unchanged lockfile were reproduced on thesis-repro and thesis-handoff on 22 September 2026; see docs/handoff-acceptance.md and docs/reproduction-guide.md."
   ]
 }

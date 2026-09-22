@@ -390,7 +390,7 @@ def main():
         p.add_argument('--workspace', type=Path, required=True)
         if command == 'run':
             p.add_argument('--mode', choices=('prepare', 'install', 'upgrade'), default='prepare')
-            p.add_argument('--since', help='Immediate report start (default today 00:00 UTC).')
+            p.add_argument('--since', help='Immediate report start (default midnight in the workspace timezone).')
         elif command == 'report':
             p.add_argument('--since')
             p.add_argument('--until')
