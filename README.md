@@ -7,10 +7,26 @@ Shared honeypots emulate services, not complete target-device identities.
 
 ## Start here
 
+The new user-facing command is `python3 honeypotctl.py`. See
+[the user guide](docs/user-guide.md) for prerequisites, configuration, and commands:
+
+- `init`: create a private configuration workspace; no dependency installation.
+- `check`: read-only prerequisite checks, with no Ubuntu-version restriction.
+- `run --mode install`: discovery through deployment and an immediate report.
+- `run --mode upgrade`: the existing conservative upgrade workflow plus reporting.
+- `report`: collect a configured window or the previous UTC day.
+- `schedule`: generate units; `--install` explicitly installs/enables the timer.
+
+Users supply Linux, compatible dependencies, a working local Kubernetes node,
+namespace/policy, kubeconfig, and running HoneyChart. Pinned recipes are currently
+validated for Linux amd64. The new integration passed offline tests and a live scan-to-report run.
+A clean handoff and first automatic timer execution remain pending. Existing scripts below remain available.
+
+
 See [the reproduction guide](docs/reproduction-guide.md) for prerequisites,
 configuration, execution, verified results, and remaining validation work.
 
-The current orchestration entry point is `run_system.py`:
+The lower-level orchestration entry point is `run_system.py`:
 
 ```bash
 python3 run_system.py \

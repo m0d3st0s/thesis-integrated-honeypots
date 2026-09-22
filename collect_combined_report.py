@@ -62,16 +62,24 @@ def main():
     parser.add_argument("since")
     parser.add_argument("until")
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--conpot-log", required=True, type=Path)
-    parser.add_argument("--conpot-deployment", required=True)
-    parser.add_argument("--conpot-namespace", required=True)
-    parser.add_argument("--conpot-log-id", required=True)
-    parser.add_argument("--conpot-labels", required=True, type=Path)
+    parser.add_argument("--skip-mixed", action="store_true")
+    parser.add_argument("--skip-conpot", action="store_true")
+    parser.add_argument("--mixed-services", default="cowrie,dionaea")
+    parser.add_argument("--conpot-log", type=Path)
+    parser.add_argument("--conpot-deployment")
+    parser.add_argument("--conpot-namespace")
+    parser.add_argument("--conpot-log-id")
+    parser.add_argument("--conpot-labels", type=Path)
     mixed_options = ("deployment", "namespace", "database", "database-id",
                      "cowrie-log", "labels", "history-root", "reports-root")
     for option in mixed_options:
         parser.add_argument("--mixed-" + option)
     args = parser.parse_args()
+    if args.skip_mixed and args.skip_conpot:
+        parser.error("At least one reporting section must be selected.")
+    if not args.skip_conpot and not all((args.conpot_log, args.conpot_deployment,
+                                       args.conpot_namespace, args.conpot_log_id, args.conpot_labels)):
+        parser.error("Selected Conpot section requires all --conpot-* settings.")
     supplied = [getattr(args, "mixed_" + option.replace("-", "_"))
                 for option in mixed_options]
     if any(value is not None for value in supplied) and not all(supplied):
@@ -132,7 +140,7 @@ def main():
             "bash", str(project / "collect_report.sh"),
             args.since, args.until,
             "--output", str(folder / "ssh-http"),
-        ] + mixed_arguments, folder / "ssh-http-collector.log")
+        ] + mixed_arguments + ["--services", args.mixed_services], folder / "ssh-http-collector.log")
         if not (folder / "ssh-http/report-completed.txt").is_file():
             raise ValueError("SSH/HTTP completion marker is missing.")
 
@@ -186,6 +194,10 @@ def main():
 
     for name, action in (("ssh_http", mixed), ("modbus", modbus)):
         section = manifest["sections"][name]
+        if (name == "ssh_http" and args.skip_mixed) or (name == "modbus" and args.skip_conpot):
+            section.update(status="not_selected", reason="Not selected in reporting configuration.")
+            save_manifest()
+            continue
         section.update(status="running", started_at=now())
         save_manifest()
         try:
@@ -199,7 +211,7 @@ def main():
         print(name + ": " + section["status"], flush=True)
 
     failed = any(
-        item["status"] != "completed"
+        item["status"] not in ("completed", "not_selected")
         for item in manifest["sections"].values()
     )
     manifest["status"] = "failed" if failed else "completed"
@@ -220,6 +232,8 @@ def main():
             lines.append(title)
             if manifest["sections"][key]["status"] == "completed":
                 lines.append(path.read_text())
+            elif manifest["sections"][key]["status"] == "not_selected":
+                lines.append("NOT SELECTED: excluded by configuration; no zero count inferred.")
             else:
                 lines.append("FAILED: " + manifest["sections"][key]["error"])
             lines.append("")

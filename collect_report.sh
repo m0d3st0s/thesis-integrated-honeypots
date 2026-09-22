@@ -19,12 +19,14 @@ LABELS="$PROJECT_DIR/controlled-test-events-mixed.txt"
 HISTORY_ROOT="$HOME/thesis/runs"
 REPORTS_ROOT="$HOME/thesis/reports"
 REPORT_DIR=""
+SERVICES="cowrie,dionaea"
 while [ "$#" -gt 0 ]; do
     if [ "$#" -lt 2 ] || [ -z "$2" ]; then
         echo "Missing option value: $1" >&2
         exit 1
     fi
     case "$1" in
+        --services) SERVICES="$2" ;;
         --output) REPORT_DIR="$2" ;;
         --deployment) RELEASE="$2" ;;
         --namespace) NAMESPACE="$2" ;;
@@ -54,6 +56,10 @@ if parse(sys.argv[1]) >= parse(sys.argv[2]):
     raise SystemExit("SINCE must be earlier than UNTIL.")
 PY
 
+case "$SERVICES" in
+ cowrie|dionaea|cowrie,dionaea|dionaea,cowrie) ;;
+ *) echo "Invalid mixed services: $SERVICES" >&2; exit 1 ;;
+esac
 test -f "$LABELS"
 umask 077
 
@@ -77,7 +83,7 @@ kubectl get pods -n "$NAMESPACE" \
     > "$REPORT_DIR/pods.json"
 
 echo "2. Collecting current logs and a database snapshot..."
-python3 - "$COWRIE_LOG" "$DATABASE" "$REPORT_DIR" "$DATABASE_ID" "$RELEASE" "$NAMESPACE" <<'PY'
+python3 - "$COWRIE_LOG" "$DATABASE" "$REPORT_DIR" "$DATABASE_ID" "$RELEASE" "$NAMESPACE" "$SERVICES" <<'PY'
 import json
 import os
 import sqlite3
@@ -107,128 +113,141 @@ metadata = {
     ],
 }
 
-metadata["cowrie_read_started"] = now()
+selected = sys.argv[7].split(",")
+metadata["selected_honeypots"] = selected
+metadata["excluded_honeypots"] = sorted({"cowrie", "dionaea"} - set(selected))
+if "cowrie" in selected:
+    metadata["cowrie_read_started"] = now()
 
-import hashlib
-import re
-import stat
+    import hashlib
+    import re
+    import stat
 
-folder_path = log_path.parent
-current_name = log_path.name
-rotated_pattern = re.compile(re.escape(current_name) + r"\.\d{4}-\d{2}-\d{2}")
+    folder_path = log_path.parent
+    current_name = log_path.name
+    rotated_pattern = re.compile(re.escape(current_name) + r"\.\d{4}-\d{2}-\d{2}")
 
-def inventory():
-    result = {}
-    for path in folder_path.iterdir():
-        if path.name != current_name and not rotated_pattern.fullmatch(path.name):
-            continue
-        info = path.lstat()
-        if not stat.S_ISREG(info.st_mode):
-            raise SystemExit("Expected a regular log file: " + str(path))
-        result[path.name] = (info.st_dev, info.st_ino, info.st_size)
-    if current_name not in result:
-        raise SystemExit("Current Cowrie log is missing.")
-    return result
+    def inventory():
+        result = {}
+        for path in folder_path.iterdir():
+            if path.name != current_name and not rotated_pattern.fullmatch(path.name):
+                continue
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode):
+                raise SystemExit("Expected a regular log file: " + str(path))
+            result[path.name] = (info.st_dev, info.st_ino, info.st_size)
+        if current_name not in result:
+            raise SystemExit("Current Cowrie log is missing.")
+        return result
 
-before = inventory()
-names = sorted(name for name in before if name != current_name)
-names.append(current_name)
+    before = inventory()
+    names = sorted(name for name in before if name != current_name)
+    names.append(current_name)
 
-chunks = []
-files = []
-omitted_total = 0
+    chunks = []
+    files = []
+    omitted_total = 0
 
-for name in names:
-    path = folder_path / name
-    expected = before[name]
-    with path.open("rb") as source:
-        info = os.fstat(source.fileno())
-        if (info.st_dev, info.st_ino) != expected[:2]:
-            raise SystemExit("Cowrie logs changed during collection; rerun.")
-        raw = source.read(expected[2])
+    for name in names:
+        path = folder_path / name
+        expected = before[name]
+        with path.open("rb") as source:
+            info = os.fstat(source.fileno())
+            if (info.st_dev, info.st_ino) != expected[:2]:
+                raise SystemExit("Cowrie logs changed during collection; rerun.")
+            raw = source.read(expected[2])
 
-    if len(raw) != expected[2]:
-        raise SystemExit("Cowrie log was truncated during collection; rerun.")
+        if len(raw) != expected[2]:
+            raise SystemExit("Cowrie log was truncated during collection; rerun.")
 
-    end = raw.rfind(b"\n") + 1
-    complete = raw[:end]
-    omitted = len(raw) - end
+        end = raw.rfind(b"\n") + 1
+        complete = raw[:end]
+        omitted = len(raw) - end
 
-    if omitted and name != current_name:
-        raise SystemExit("Incomplete final line in rotated log: " + name)
+        if omitted and name != current_name:
+            raise SystemExit("Incomplete final line in rotated log: " + name)
 
-    records = 0
-    for number, line in enumerate(complete.splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError as exc:
-            raise SystemExit(
-                "Invalid JSON in {} line {}: {}".format(name, number, exc)
-            )
-        if not isinstance(event, dict):
-            raise SystemExit("Expected a JSON object in " + name)
-        records += 1
+        records = 0
+        for number, line in enumerate(complete.splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError as exc:
+                raise SystemExit(
+                    "Invalid JSON in {} line {}: {}".format(name, number, exc)
+                )
+            if not isinstance(event, dict):
+                raise SystemExit("Expected a JSON object in " + name)
+            records += 1
 
-    chunks.append(complete)
-    omitted_total += omitted
-    files.append({
-        "name": name,
-        "bytes_read": len(raw),
-        "bytes_included": len(complete),
-        "trailing_bytes_omitted": omitted,
-        "json_records": records,
-        "included_sha256": hashlib.sha256(complete).hexdigest(),
-    })
+        chunks.append(complete)
+        omitted_total += omitted
+        files.append({
+            "name": name,
+            "bytes_read": len(raw),
+            "bytes_included": len(complete),
+            "trailing_bytes_omitted": omitted,
+            "json_records": records,
+            "included_sha256": hashlib.sha256(complete).hexdigest(),
+        })
 
-after = inventory()
-if set(before) != set(after):
-    raise SystemExit("Cowrie logs rotated during collection; rerun.")
+    after = inventory()
+    if set(before) != set(after):
+        raise SystemExit("Cowrie logs rotated during collection; rerun.")
 
-for name in names:
-    if before[name][:2] != after[name][:2]:
-        raise SystemExit("Cowrie log identity changed; rerun.")
-    if after[name][2] < before[name][2]:
-        raise SystemExit("Cowrie log was truncated; rerun.")
-    if name != current_name and after[name][2] != before[name][2]:
-        raise SystemExit("A rotated Cowrie log changed; rerun.")
+    for name in names:
+        if before[name][:2] != after[name][:2]:
+            raise SystemExit("Cowrie log identity changed; rerun.")
+        if after[name][2] < before[name][2]:
+            raise SystemExit("Cowrie log was truncated; rerun.")
+        if name != current_name and after[name][2] != before[name][2]:
+            raise SystemExit("A rotated Cowrie log changed; rerun.")
 
-snapshot = folder / "cowrie-snapshot.jsonl"
-snapshot.write_bytes(b"".join(chunks))
+    snapshot = folder / "cowrie-snapshot.jsonl"
+    snapshot.write_bytes(b"".join(chunks))
 
-metadata["cowrie_files"] = files
-metadata["cowrie_trailing_bytes_omitted"] = omitted_total
-metadata["cowrie_read_finished"] = now()
+    metadata["cowrie_files"] = files
+    metadata["cowrie_trailing_bytes_omitted"] = omitted_total
+    metadata["cowrie_read_finished"] = now()
 
-metadata["dionaea_backup_started"] = now()
-destination = folder / "dionaea.sqlite"
-source = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
-backup = sqlite3.connect(destination)
-try:
-    source.backup(backup)
-    if backup.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
-        raise SystemExit("Dionaea snapshot integrity check failed.")
-    metadata["dionaea_connection_rows"] = backup.execute(
-        "SELECT COUNT(*) FROM connections"
-    ).fetchone()[0]
-finally:
-    backup.close()
-    source.close()
+else:
+    (folder / "cowrie-snapshot.jsonl").write_bytes(b"")
 
-metadata["dionaea_backup_finished"] = now()
+if "dionaea" in selected:
+    metadata["dionaea_backup_started"] = now()
+    destination = folder / "dionaea.sqlite"
+    source = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+    backup = sqlite3.connect(destination)
+    try:
+        source.backup(backup)
+        if backup.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+            raise SystemExit("Dionaea snapshot integrity check failed.")
+        metadata["dionaea_connection_rows"] = backup.execute(
+            "SELECT COUNT(*) FROM connections"
+        ).fetchone()[0]
+    finally:
+        backup.close()
+        source.close()
+
+    metadata["dionaea_backup_finished"] = now()
 
 path = folder / "collection.json"
 path.write_text(json.dumps(metadata, indent=2) + "\n")
-print("Snapshots collected; Dionaea integrity verified.")
+print("Selected snapshots collected; selected databases integrity verified.")
 PY
 
 echo "3. Normalizing and classifying connections..."
+if [[ ",$SERVICES," == *,dionaea,* ]]; then
 python3 "$PROJECT_DIR/export_dionaea.py" \
     "$REPORT_DIR/dionaea.sqlite" \
     --database-id "$DATABASE_ID" \
     --deployment "$RELEASE" \
     > "$REPORT_DIR/dionaea-normalized.jsonl"
+
+else
+    : > "$REPORT_DIR/dionaea-normalized.jsonl"
+fi
 
 # Preserve the labels used for this particular report.
 cp "$LABELS" \
@@ -267,6 +286,7 @@ ports = {p["name"]: p for p in service["spec"]["ports"]}
 lines = [
     "HONEYPOT INTERACTION REPORT",
     "Deployment: " + report["deployment"],
+    "Selected sources: " + ", ".join(json.loads((folder / "collection.json").read_text())["selected_honeypots"]),
     "Since (inclusive): " + report["window"]["since_inclusive"],
     "Until (exclusive): " + report["window"]["until_exclusive"],
     "Coverage: supplied snapshots; full-window coverage is not established.",

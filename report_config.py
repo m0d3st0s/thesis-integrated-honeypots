@@ -31,6 +31,8 @@ def load_config(path):
         ('mixed', ('database', 'cowrie_log', 'labels', 'history_root'), ('database_id',)),
         ('conpot', ('log', 'labels'), ('log_id',)),
     ):
+        if name not in config:
+            continue
         source = config[name]
         section = {}
         for key in ('deployment', 'namespace'):
@@ -45,16 +47,25 @@ def load_config(path):
             section[key] = value
         for key in paths:
             section[key] = resolve(string(source, key))
+        if name == 'mixed':
+            services = source.get('services', ['cowrie', 'dionaea'])
+            if (not isinstance(services, list) or not services
+                    or any(hp not in ('cowrie', 'dionaea') for hp in services)
+                    or len(set(services)) != len(services)):
+                raise ValueError('mixed.services must select cowrie and/or dionaea.')
+            section['services'] = services
         result[name] = section
+    if not any(name in result for name in ('mixed', 'conpot')):
+        raise ValueError('At least one reporting source must be configured.')
     kubeconfig = config.get('kubeconfig')
     if kubeconfig is not None:
         result['kubeconfig'] = resolve(string(config, 'kubeconfig'))
         if not Path(result['kubeconfig']).is_file():
             raise ValueError('Configured kubeconfig is missing.')
     for name in ('mixed', 'conpot'):
-        if not Path(result[name]['labels']).is_file():
+        if name in result and not Path(result[name]['labels']).is_file():
             raise ValueError('Label file is missing for ' + name)
-    if not Path(result['mixed']['history_root']).is_dir():
+    if 'mixed' in result and not Path(result['mixed']['history_root']).is_dir():
         raise ValueError('Configured history root must be an existing directory; it may be empty.')
     return result
 
@@ -102,21 +113,28 @@ def main():
                   'configuration_source': str(args.config.expanduser().resolve()),
                   'limitations': ['Collectors require filesystem access to configured log and database paths.',
                                   'A cluster kubeconfig alone does not provide remote filesystem access.',
-                                  'This configuration covers one mixed release and one Conpot release.',
+                                  'Absent reporting sections are not selected; at most one mixed and one Conpot release are supported.',
                                   'Source IDs must change when a database is replaced or a Conpot log is reset.']}
         status_path.write_text(json.dumps(status, indent=2) + '\n')
         command = [sys.executable, str(Path(__file__).resolve().parent / 'collect_combined_report.py'),
                    args.since, args.until, '--output', str(parent / 'report')]
-        mixed = config['mixed']
-        for option, key in (('deployment', 'deployment'), ('namespace', 'namespace'),
-                            ('database', 'database'), ('database-id', 'database_id'),
-                            ('cowrie-log', 'cowrie_log'), ('labels', 'labels'), ('history-root', 'history_root')):
-            command += ['--mixed-' + option, mixed[key]]
-        command += ['--mixed-reports-root', config['reports_root']]
-        conpot = config['conpot']
-        for option, key in (('deployment', 'deployment'), ('namespace', 'namespace'),
-                            ('log', 'log'), ('log-id', 'log_id'), ('labels', 'labels')):
-            command += ['--conpot-' + option, conpot[key]]
+        if 'mixed' in config:
+            mixed = config['mixed']
+            for option, key in (('deployment', 'deployment'), ('namespace', 'namespace'),
+                                ('database', 'database'), ('database-id', 'database_id'),
+                                ('cowrie-log', 'cowrie_log'), ('labels', 'labels'), ('history-root', 'history_root')):
+                command += ['--mixed-' + option, mixed[key]]
+            command += ['--mixed-reports-root', config['reports_root'],
+                        '--mixed-services', ','.join(mixed['services'])]
+        else:
+            command += ['--skip-mixed']
+        if 'conpot' in config:
+            conpot = config['conpot']
+            for option, key in (('deployment', 'deployment'), ('namespace', 'namespace'),
+                                ('log', 'log'), ('log-id', 'log_id'), ('labels', 'labels')):
+                command += ['--conpot-' + option, conpot[key]]
+        else:
+            command += ['--skip-conpot']
         env = os.environ.copy()
         if 'kubeconfig' in config:
             env['KUBECONFIG'] = config['kubeconfig']
