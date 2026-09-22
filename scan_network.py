@@ -76,6 +76,11 @@ def main():
         )
         if not set(modbus_ports).issubset(ports):
             raise ValueError("Modbus probe ports must be included in tcp_ports.")
+        smb_ports = port_list(config.get('smb_probe_ports', []), 'smb_probe_ports', allow_empty=True)
+        if not set(smb_ports).issubset(ports):
+            raise ValueError('SMB probe ports must be included in tcp_ports.')
+        if set(smb_ports) & set(modbus_ports):
+            raise ValueError('SMB and Modbus probe ports must not overlap.')
 
         load_catalog(args.catalog)
         for command in ("ip", "nmap", "sudo"):
@@ -133,13 +138,14 @@ def main():
                 record["finished_at"] = now()
                 save()
 
-        def save_profile(xml_name, profile_name, kind):
-            result = profile_scan(folder / xml_name, catalog)
+        def save_profile(xml_name, profile_name, kind, port=None):
+            result = profile_scan(folder / xml_name, catalog, smb_probe_port=port if kind == 'smb' else None)
             write_json(folder / profile_name, result)
             manifest["profiles"].append({
                 "kind": kind,
                 "source_xml": xml_name,
                 "profile": profile_name,
+                **({'port': port} if kind == 'smb' else {}),
             })
             save()
 
@@ -183,6 +189,7 @@ def main():
             save_profile("services.xml", "services-profile.json", "general")
 
             candidates = set()
+            smb_candidates = set()
             scanned = set()
             for host in root.findall("host"):
                 address = host.find("address[@addrtype='ipv4']")
@@ -202,6 +209,9 @@ def main():
                         and state.get("state") == "open"
                     ):
                         candidates.add((ip, number))
+                    if (port.get('protocol') == 'tcp' and number in smb_ports
+                            and state is not None and state.get('state') == 'open'):
+                        smb_candidates.add((ip, number))
 
             if scanned != set(ordered):
                 raise ValueError("Service scan omitted discovered targets.")
@@ -219,6 +229,14 @@ def main():
                 save_profile(
                     xml_name, f"modbus-{index:03d}-profile.json", "modbus"
                 )
+
+            for index, (ip, port) in enumerate(sorted(smb_candidates), 1):
+                xml_name = f'smb-{index:03d}.xml'
+                run(['nmap', '-sT', '-Pn', '-n', '-p', str(port),
+                     '--script', '+smb-protocols', '--script-args', 'smbport=' + str(port),
+                     '--script-timeout', '30s', ip, '-oX', str(folder / xml_name)])
+                successful_scan(folder / xml_name)
+                save_profile(xml_name, f'smb-{index:03d}-profile.json', 'smb', port=port)
 
         manifest["status"] = "completed" if ordered else "no_targets"
         manifest["finished_at"] = now()

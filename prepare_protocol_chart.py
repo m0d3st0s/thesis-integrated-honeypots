@@ -2,6 +2,8 @@ import argparse
 import json
 import re
 from pathlib import Path
+from protocol_support import requested_listeners
+from smb_repair_chart import repair_assets
 
 
 def prepare(chart, request_path, state_root, node_hostname):
@@ -33,10 +35,13 @@ def prepare(chart, request_path, state_root, node_hostname):
     ):
         raise ValueError("Expected Cowrie, Dionaea, or both.")
 
+    listeners = requested_listeners(request)
+    smb_selected = any(service == "smb" for service, _, _ in listeners.get("dionaea", []))
+    repair_init, repair_volumes, repair_mount, repair_outputs = (
+        repair_assets(chart) if smb_selected else ("", "", "", {})
+    )
     recipes = {
         "cowrie": {
-            "service": "ssh",
-            "listener": 2222,
             "mount_key": "cowriemountPath",
             "host_key": "cowriehostPath",
             "log_volume": "cowrie-data",
@@ -44,8 +49,6 @@ def prepare(chart, request_path, state_root, node_hostname):
             "state_mount": "/cowrie/cowrie-git/var/lib/cowrie",
         },
         "dionaea": {
-            "service": "http",
-            "listener": 80,
             "mount_key": "dionaeamountPath",
             "host_key": "dionaeahostPath",
             "log_volume": "dioanea-data",
@@ -80,28 +83,17 @@ def prepare(chart, request_path, state_root, node_hostname):
         ),
         (
             "      serviceAccountName:",
-            "      automountServiceAccountToken: false\n"
+            repair_init + "      automountServiceAccountToken: false\n"
             "      serviceAccountName:",
         ),
     ]
-    volume_block = "      volumes:\n"
+    volume_block = "      volumes:\n" + repair_volumes
 
     for name in sorted(selected):
         recipe = recipes[name]
         item = request["honeypots"][name]
-        service = recipe["service"]
-        if (
-            len(item["services"]) != 1
-            or set(item["services"][0]) != {service}
-            or item["containerports"] != [recipe["listener"]]
-            or item["protocols"] != ["TCP"]
-            or len(item["volumes"]) != 1
-        ):
+        if len(item["volumes"]) != 1:
             raise ValueError("Unsupported service configuration for " + name)
-
-        port = item["services"][0][service]
-        if type(port) is not int or not 1 <= port <= 65535:
-            raise ValueError("Invalid Service port.")
         log_path = Path(item["volumes"][0])
         if not log_path.is_absolute() or ".." in log_path.parts:
             raise ValueError("Invalid host log path.")
@@ -115,7 +107,8 @@ def prepare(chart, request_path, state_root, node_hostname):
             old_mount,
             old_mount + "\n"
             "            - mountPath: " + recipe["state_mount"] + "\n"
-            "              name: " + name + "-state",
+            "              name: " + name + "-state"
+            + (repair_mount if name == "dionaea" else ""),
         ))
 
         old_log_path = (
@@ -138,14 +131,15 @@ def prepare(chart, request_path, state_root, node_hostname):
         )
         values["volumes"][recipe["mount_key"]] = recipe["log_mount"]
         values["volumes"][recipe["host_key"]] = str(log_path)
-        values["honeypots"][name] = {
-            "ports": {
+        ports = {}
+        for service, port, listener in listeners[name]:
+            ports.update({
                 "name" + service: service,
                 "protocol" + service: "TCP",
                 "port" + service: port,
-                "containerPort" + service: recipe["listener"],
-            }
-        }
+                "containerPort" + service: listener,
+            })
+        values["honeypots"][name] = {"ports": ports}
 
     changes.append(("      volumes:\n", volume_block))
     updated = original
@@ -158,7 +152,7 @@ def prepare(chart, request_path, state_root, node_hostname):
     values_path = chart.parent / (release + "-recipe-values.json")
     test = chart / "templates/tests/test-connection.yaml"
     saved_test = chart.parent / (release + "-unused-http-test.yaml")
-    destinations = [backup, values_path]
+    destinations = [backup, values_path] + list(repair_outputs)
     if test.exists():
         destinations.append(saved_test)
     if any(path.exists() for path in destinations):
@@ -166,6 +160,9 @@ def prepare(chart, request_path, state_root, node_hostname):
 
     backup.write_text(original)
     values_path.write_text(json.dumps(values, indent=2) + "\n")
+    for path, data in repair_outputs.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
     template.write_text(updated)
     if test.exists():
         test.rename(saved_test)

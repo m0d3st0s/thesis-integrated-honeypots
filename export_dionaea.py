@@ -3,6 +3,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from protocol_support import dionaea_service
 
 parser = argparse.ArgumentParser()
 parser.add_argument("database", type=Path)
@@ -34,7 +35,7 @@ try:
 
         connection_id = row["connection"]
         inbound = row["connection_type"] == "accept"
-        service = {"httpd": "http"}.get(row["connection_protocol"])
+        service = dionaea_service(row["connection_protocol"], row["connection_transport"])
 
         events.append({
             "schema_version": 1,
@@ -52,6 +53,7 @@ try:
             "transport": row["connection_transport"],
             "service": service,
             "original_protocol": row["connection_protocol"],
+            "service_identification": "recorded_protocol_and_transport" if service else "unrecognized_protocol_or_transport",
             "local_ip": row["local_host"],
             "local_port": row["local_port"],
             "remote_ip": row["remote_host"],

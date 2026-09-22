@@ -65,6 +65,7 @@ def main():
     parser.add_argument("--skip-mixed", action="store_true")
     parser.add_argument("--skip-conpot", action="store_true")
     parser.add_argument("--mixed-services", default="cowrie,dionaea")
+    parser.add_argument('--mixed-protocols')
     parser.add_argument("--conpot-log", type=Path)
     parser.add_argument("--conpot-deployment")
     parser.add_argument("--conpot-namespace")
@@ -111,7 +112,8 @@ def main():
         },
         "limitations": [
             "Sections are collected sequentially, not atomically.",
-            "SSH/HTTP connection counts and Modbus logged starts are separate metrics.",
+            "Mixed-service connection counts and Modbus logged starts are separate metrics.",
+            "The legacy ssh_http section key and ssh-http folder now also hold HTTPS/SMB.",
             "A requested window does not establish continuous collection coverage.",
             "Conpot window membership uses reported session creation time.",
             "Conpot log identity must change after source replacement or truncation.",
@@ -140,9 +142,10 @@ def main():
             "bash", str(project / "collect_report.sh"),
             args.since, args.until,
             "--output", str(folder / "ssh-http"),
-        ] + mixed_arguments + ["--services", args.mixed_services], folder / "ssh-http-collector.log")
+        ] + mixed_arguments + ["--services", args.mixed_services]
+            + (['--protocols', args.mixed_protocols] if args.mixed_protocols else []), folder / "ssh-http-collector.log")
         if not (folder / "ssh-http/report-completed.txt").is_file():
-            raise ValueError("SSH/HTTP completion marker is missing.")
+            raise ValueError("Mixed-service completion marker is missing.")
 
     def modbus():
         section = folder / "modbus"
@@ -218,7 +221,7 @@ def main():
     manifest["finished_at"] = now()
 
     sections = [
-        ("SSH/HTTP CONNECTION REPORT", "ssh_http", folder / "ssh-http/report.txt"),
+        ("MIXED-SERVICE CONNECTION REPORT", "ssh_http", folder / "ssh-http/report.txt"),
         ("MODBUS LOGGED-START REPORT", "modbus", folder / "modbus/report/report.txt"),
     ]
     lines = [

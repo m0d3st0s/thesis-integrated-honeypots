@@ -15,6 +15,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 import uuid
+from protocol_support import requested_listeners
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -210,6 +211,12 @@ def doctor(workspace, config, env, *, scan_checks=True):
             require('modbus-discover' in value, 'Nmap must include the modbus-discover script.')
             return 'Modbus discovery script available; no scan performed.'
         check('Nmap Modbus script', nmap_script)
+        if scan.get('smb_probe_ports'):
+            def smb_script():
+                value = output(['nmap', '--script-help', 'smb-protocols'], env=env)
+                require('smb-protocols' in value, 'Nmap must include smb-protocols.')
+                return 'SMB dialect discovery script available; no scan performed.'
+            check('Nmap SMB script', smb_script)
         def interface_check():
             addresses = json.loads(output(['ip', '-j', '-4', 'addr', 'show', 'dev', scan['interface']], env=env))
             return require(any(a.get('local') == scan['scanner_ip'] for d in addresses for a in d.get('addr_info', [])),
@@ -265,6 +272,7 @@ def reporting_settings(workspace, config, prepared):
                 raise ValueError('Reporting supports one mixed release and one separate Conpot release.')
             logs = Path(deployment['log_root']) / release
             result['mixed'] = dict(base, services=sorted(selected),
+                protocols=sorted(service for items in requested_listeners(request).values() for service, _, _ in items),
                 database=str(Path(runtime['state_root']) / release / 'dionaea/dionaea.sqlite'),
                 database_id=identity + '-' + release + '-dionaea',
                 cowrie_log=str(logs / 'cowrie/cowrie.json'), labels=str(workspace / 'labels/mixed.txt'),

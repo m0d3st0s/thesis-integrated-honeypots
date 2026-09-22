@@ -28,7 +28,7 @@ if script == 'run_system.py':
         (p / 'requests').mkdir(parents=True)
         shutil.copyfile(arg('--runtime-config'), p / 'runtime-config.json')
         shutil.copyfile(arg('--deployment-config'), p / 'deployment-config.json')
-        (p / 'requests/mixed.request.json').write_text(json.dumps({'name':'mixed-test','honeypots':{'names':['cowrie']}}))
+        (p / 'requests/mixed.request.json').write_text(json.dumps({'name':'mixed-test','honeypots':{'names':['cowrie'],'cowrie':{'services':[{'ssh':22}],'containerports':[2222],'protocols':['TCP']}}}))
 elif script in ('install_prepared.py', 'deploy_prepared.py'):
     if mode == 'deployment_failure': sys.exit(3)
     (out / 'result.json').write_text('{"status":"completed"}')

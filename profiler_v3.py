@@ -28,7 +28,7 @@ def load_catalog(path):
         if key in rules:
             raise ValueError("Duplicate catalog rule: " + str(key))
         required = rule.get("required_script")
-        if required not in (None, "modbus-discover"):
+        if required not in (None, "modbus-discover", "smb-protocols"):
             raise ValueError("Unsupported script evidence validator.")
         rules[key] = rule
     return rules
@@ -49,7 +49,36 @@ def has_modbus_identification(port):
     return False
 
 
-def profile_scan(scan_path, catalog_path):
+def canonical_service(service):
+    name = service.get('name', 'unknown')
+    tunnel = service.get('tunnel')
+    if tunnel:
+        return 'https' if name in ('http', 'https') and tunnel == 'ssl' else 'unsupported-tunnel'
+    if name == 'https':
+        return 'https-without-tls-evidence'
+    return {'microsoft-ds': 'smb', 'netbios-ssn': 'smb'}.get(name, name)
+
+
+def smb_dialects(host):
+    # smb-protocols is a HOST script. Its result must only be attributed to the
+    # single endpoint explicitly requested by our separate smbport probe.
+    # Nmap versions use both dotted and colon-separated dialect labels.
+    # Normalize only known wire dialects; retain the raw script as evidence.
+    aliases = {
+        '2:0:2': '2.0.2', '2:1:0': '2.1', '3:0:0': '3.0',
+        '3:0:2': '3.0.2', '3:1:1': '3.1.1',
+    }
+    values = []
+    for script in host.findall("./hostscript/script[@id='smb-protocols']"):
+        for element in script.findall("./table[@key='dialects']/elem"):
+            value = (element.text or '').strip()
+            value = aliases.get(value, value)
+            if value in ('2.0.2', '2.1', '3.0', '3.0.2', '3.1.1') or value.startswith('NT LM 0.12 (SMBv1)'):
+                values.append(value)
+    return sorted(set(values))
+
+
+def profile_scan(scan_path, catalog_path, *, smb_probe_port=None):
     rules = load_catalog(catalog_path)
     root = ET.parse(scan_path).getroot()
     if root.tag != "nmaprun":
@@ -57,6 +86,13 @@ def profile_scan(scan_path, catalog_path):
     finished = root.find("./runstats/finished")
     if finished is None or finished.get("exit") != "success":
         raise ValueError("Scan did not finish successfully.")
+    if smb_probe_port is not None:
+        if type(smb_probe_port) is not int or not 1 <= smb_probe_port <= 65535:
+            raise ValueError('Invalid explicit SMB probe port.')
+        hosts = root.findall('host')
+        ports = hosts[0].findall('./ports/port') if len(hosts) == 1 else []
+        if len(ports) != 1 or ports[0].get('protocol') != 'tcp' or ports[0].get('portid') != str(smb_probe_port):
+            raise ValueError('SMB host-script evidence requires exactly one explicit TCP endpoint.')
 
     devices = []
     seen_addresses = set()
@@ -114,12 +150,16 @@ def profile_scan(scan_path, catalog_path):
             if observation["state"] != "open":
                 continue
 
-            name = service.get("name", "unknown")
+            dialects = smb_dialects(host) if smb_probe_port == number and transport == 'tcp' else []
+            name = 'smb' if dialects else canonical_service(service)
+            if dialects:
+                observation['smb_dialects'] = dialects
+                observation['host_scripts'] = [preserve_element(s) for s in host.findall("./hostscript/script[@id='smb-protocols']")]
             rule = rules.get((transport, name))
             reason = None
-            if service.get("method") != "probed":
+            if service.get("method") != "probed" and not dialects:
                 reason = "Service identity was not confirmed by probing."
-            elif service.get("tunnel"):
+            elif service.get("tunnel") and name != 'https':
                 reason = "Tunneled services require a separate mapping."
             elif rule is None:
                 reason = "No matching protocol rule in the catalog."
@@ -128,6 +168,8 @@ def profile_scan(scan_path, catalog_path):
                 and not has_modbus_identification(port)
             ):
                 reason = "Modbus identification evidence is missing."
+            elif rule.get('required_script') == 'smb-protocols' and not dialects:
+                reason = 'SMB dialect negotiation evidence is missing.'
 
             if reason:
                 unsupported.append({

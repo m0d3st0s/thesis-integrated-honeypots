@@ -20,6 +20,7 @@ HISTORY_ROOT="$HOME/thesis/runs"
 REPORTS_ROOT="$HOME/thesis/reports"
 REPORT_DIR=""
 SERVICES="cowrie,dionaea"
+PROTOCOLS=""
 while [ "$#" -gt 0 ]; do
     if [ "$#" -lt 2 ] || [ -z "$2" ]; then
         echo "Missing option value: $1" >&2
@@ -27,6 +28,7 @@ while [ "$#" -gt 0 ]; do
     fi
     case "$1" in
         --services) SERVICES="$2" ;;
+        --protocols) PROTOCOLS="$2" ;;
         --output) REPORT_DIR="$2" ;;
         --deployment) RELEASE="$2" ;;
         --namespace) NAMESPACE="$2" ;;
@@ -60,6 +62,16 @@ case "$SERVICES" in
  cowrie|dionaea|cowrie,dionaea|dionaea,cowrie) ;;
  *) echo "Invalid mixed services: $SERVICES" >&2; exit 1 ;;
 esac
+PROTOCOL_ARGS=()
+if [ -n "$PROTOCOLS" ]; then
+    python3 - "$PROJECT_DIR" "$PROTOCOLS" "$SERVICES" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from protocol_support import reporting_protocols
+reporting_protocols(sys.argv[2].split(','), sys.argv[3].split(','))
+PY
+    PROTOCOL_ARGS=(--protocols "$PROTOCOLS")
+fi
 test -f "$LABELS"
 umask 077
 
@@ -271,6 +283,7 @@ echo "4. Applying the reporting window..."
 python3 "$PROJECT_DIR/window_feed.py" \
     "$REPORT_DIR/all-connections.json" \
     --since "$SINCE" --until "$UNTIL" \
+    "${PROTOCOL_ARGS[@]}" \
     > "$REPORT_DIR/window-feed.json"
 
 python3 - "$REPORT_DIR" <<'PY'
@@ -287,12 +300,14 @@ lines = [
     "HONEYPOT INTERACTION REPORT",
     "Deployment: " + report["deployment"],
     "Selected sources: " + ", ".join(json.loads((folder / "collection.json").read_text())["selected_honeypots"]),
+    "Protocol scope: " + (", ".join(report["selected_protocols"]) if report.get("selected_protocols") else "all records from selected sources (legacy configuration)"),
     "Since (inclusive): " + report["window"]["since_inclusive"],
     "Until (exclusive): " + report["window"]["until_exclusive"],
     "Coverage: supplied snapshots; full-window coverage is not established.",
     "Metric: incoming connection starts, not confirmed attacks.",
     "",
     "Total connections: " + str(report["total_incoming_connections"]),
+    "Other/unknown protocol starts in this window, excluded from totals: " + str(report.get("excluded_protocol_connections", 0)),
 ]
 
 for group in report["by_service"]:

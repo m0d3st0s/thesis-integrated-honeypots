@@ -158,6 +158,12 @@ def main():
 
                 record["status"] = "verifying"
                 save()
+                request_path = prepared / 'requests' / (name + '.request.json')
+                selected = set(json.loads(request_path.read_text())['honeypots']['names'])
+                if selected <= {'cowrie', 'dionaea'}:
+                    subprocess.run([sys.executable, str(project / 'check_protocol_runtime.py'),
+                                    '--request', str(request_path), '--namespace', namespace,
+                                    '--output', str(release_dir / 'protocol-runtime.json')], check=True, timeout=120)
 
                 # Reuse the same checks while retaining the pipeline lock.
                 verified = preflight("checks-after-" + name)

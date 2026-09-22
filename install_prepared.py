@@ -316,6 +316,12 @@ def main():
                 print("Installing:", name, flush=True)
                 with (output / (name + "-install.log")).open("wb") as log:
                     run(command, stdout=log, stderr=subprocess.STDOUT, timeout=360)
+                request_path = prepared / 'requests' / (name + '.request.json')
+                selected = set(json.loads(request_path.read_text())['honeypots']['names'])
+                if selected <= {'cowrie', 'dionaea'}:
+                    run([sys.executable, str(project / 'check_protocol_runtime.py'),
+                         '--request', str(request_path), '--namespace', namespace,
+                         '--output', str(output / (name + '-protocol-runtime.json'))])
                 record.update({"status": "installed", "finished_at": now()})
                 save(output / "installation-result.json", report)
             run([sys.executable, str(project / "preflight_run.py"), str(prepared),

@@ -4,11 +4,19 @@ A Linux command-line research prototype that discovers network services, selects
 supported honeypots, generates and validates Helm charts through HoneyChart,
 deploys them to Kubernetes, and collects reports from their persistent data.
 
-| Observed service | Honeypot recipe |
-| --- | --- |
-| SSH | Cowrie |
-| HTTP | Dionaea |
-| Modbus, supported by the protocol probe | Conpot |
+| Observed service | Honeypot recipe | Validation status |
+| --- | --- | --- |
+| SSH | Cowrie | Live lab acceptance passed |
+| HTTP | Dionaea | Live lab acceptance passed |
+| HTTPS, with probed HTTP and TLS evidence | Dionaea | Live TLS/HTTP exchange and server correlation passed |
+| SMB, with positive dialect negotiation | Dionaea | Live SMB1 negotiation and server correlation passed; no SMB2/3 emulation claim |
+| Modbus, supported by the protocol probe | Conpot | Live lab acceptance passed |
+
+See [HTTPS and SMB](docs/https-smb.md) for the extension's scope and validation
+steps. New workspaces include these selection rules. Existing workspaces retain
+their copied configuration. An observed SMB version does not imply the honeypot
+emulates that version. The pinned image with its source-checked repair was tested
+for SMB1 negotiation. See the [recorded protocol results](docs/protocol-validation.md).
 
 Selection uses configured rules and observed service evidence. Shared honeypots
 emulate services; they do not clone complete devices or create one honeypot per
@@ -93,7 +101,7 @@ Detailed records: [workflow validation](docs/workflow-validation.md),
 
 ## Reporting and operational limits
 
-- SSH/HTTP counts represent incoming connection starts, not confirmed attacks.
+- Mixed-service counts represent incoming connection starts, not confirmed attacks.
 - Conpot logged starts are reported separately; session metadata can be reused.
 - Controlled-test labels are optional annotations requiring matched evidence.
   Unclassified events are not automatically malicious.

@@ -9,6 +9,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from report_time import day_window, reporting_zone
+from protocol_support import reporting_protocols
 
 
 def load_config(path):
@@ -57,6 +58,8 @@ def load_config(path):
                     or len(set(services)) != len(services)):
                 raise ValueError('mixed.services must select cowrie and/or dionaea.')
             section['services'] = services
+            if 'protocols' in source:
+                section['protocols'] = reporting_protocols(source['protocols'], services)
         result[name] = section
     if not any(name in result for name in ('mixed', 'conpot')):
         raise ValueError('At least one reporting source must be configured.')
@@ -131,6 +134,8 @@ def main():
                 command += ['--mixed-' + option, mixed[key]]
             command += ['--mixed-reports-root', config['reports_root'],
                         '--mixed-services', ','.join(mixed['services'])]
+            if 'protocols' in mixed:
+                command += ['--mixed-protocols', ','.join(mixed['protocols'])]
         else:
             command += ['--skip-mixed']
         if 'conpot' in config:

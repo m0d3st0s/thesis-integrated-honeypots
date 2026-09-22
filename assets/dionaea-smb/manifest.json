@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "repair_script_sha256": "a58ac4a018bee457712b711914c72a477aa6732b7775d7389402caf88256ca0c",
+  "source_sha256": "fb2ac0b62759bdc00a5ff66b4c3f1bf8478fe7169f4e4ad21774e320b67f7959",
+  "repaired_sha256": "06e2214d76987ac96062695750882e3f0e73971922865809e27ff3528537d692",
+  "image": "ghcr.io/parasecurity/dionaea@sha256:55150e2a9ef56e1b304129195affc0dc335ed35868dfde6de0ff1f2358d00515",
+  "scope": "SMB1 negotiation field-name repair only; does not implement SMB2/SMB3.",
+  "provenance": "Source supplied from the running protocol-mixed container on 2026-09-22."
+}

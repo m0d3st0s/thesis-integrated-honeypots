@@ -27,7 +27,7 @@ class Reports(unittest.TestCase):
         kubectl.write_text('''#!/usr/bin/env python3
 import json,sys
 if sys.argv[2] == 'service':
- print(json.dumps({'spec':{'ports':[{'name':'ssh','port':22,'nodePort':30022},{'name':'http','port':80,'nodePort':30080}]}}))
+ print(json.dumps({'spec':{'ports':[{'name':name,'port':port,'nodePort':nodeport} for name,port,nodeport in [('ssh',22,30022),('http',80,30080),('https',443,30443),('smb',445,30445)]]}}))
 else: print(json.dumps({'items':[]}))
 ''')
         kubectl.chmod(0o755)
@@ -146,7 +146,7 @@ class Workspace(unittest.TestCase):
         for release, hps in [('test-mixed', sorted(set(selected) & {'cowrie', 'dionaea'})),
                              ('test-modbus', ['conpot'] if 'conpot' in selected else [])]:
             if hps:
-                ctl.write(p / 'requests' / (release + '.request.json'), dict(name=release, honeypots={'names': hps}))
+                ctl.write(p / 'requests' / (release + '.request.json'), dict(name=release, honeypots={'names': hps, **{hp: dict(services=[{service: port}], containerports=[listener], protocols=['TCP']) for hp, service, port, listener in [('cowrie', 'ssh', 22, 2222), ('dionaea', 'http', 80, 80), ('conpot', 'modbus', 502, 5020)] if hp in hps}}))
         return p
 
     def test_no_original_labels_or_paths(self):

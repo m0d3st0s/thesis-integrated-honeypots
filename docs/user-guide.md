@@ -60,10 +60,18 @@ python3 "$PROJECT/honeypotctl.py" check --workspace "$WORKSPACE"
 ```
 
 Default TCP scan ports are 22, 80, 443, 445, 502 and 1502; Modbus probes target
-502 and 1502. Edit `scan.json` before running if your authorized scope differs.
+502 and 1502. The HTTPS/SMB extension adds explicit SMB probes on open TCP 445
+using `smb-protocols`; `smb_probe_ports` must be a subset of `tcp_ports`.
+HTTPS selection needs a probed HTTP service with TLS tunnel evidence.
+Edit `scan.json` before running if your authorized scope differs.
 Selection rules live in `catalog.json`; deployment mappings in `deployment.json`;
 HoneyChart, image-pin location and node placement in `runtime.json`.
 Changing a catalog alone does not implement an additional supported recipe.
+
+HTTPS and repaired SMB1 passed the [recorded lab checks](protocol-validation.md).
+Follow [their validation guide](https-smb.md) for your installation, with a fresh workspace and dedicated
+release/storage names. Updating project files does not migrate existing
+workspaces. Do not rerun `init` over an existing workspace.
 
 The check reads versions, local addresses, node readiness/architecture, namespace,
 policy configuration, HoneyChart HTTP availability, and bundled-asset hashes.
@@ -172,8 +180,12 @@ not require Nmap or HoneyChart. It needs Kubernetes metadata access and local
 read access to the selected source files.
 
 Schema-version-2 `reporting.json` is generated after successful deployment.
-It selects only the requested sources: SSH-only, HTTP-only, Modbus-only and all
-other nonempty combinations are supported. An omitted source is `not_selected`;
+It selects the requested honeypot sources and mixed protocols. The extension
+supports separate HTTP, HTTPS and SMB selection in Dionaea, alongside SSH in
+Cowrie and the separate Modbus report. The original three protocols passed live
+acceptance; HTTPS and repaired SMB1 also passed live protocol and event-correlation
+checks. SMB2/SMB3 emulation and SMB authentication/file operations are not validated.
+An omitted source is `not_selected`;
 a selected source that is missing or malformed causes failure, not a zero count.
 The configuration supports at most one mixed release and one Conpot release.
 
@@ -183,7 +195,18 @@ Copying old lab labels into a new database can misclassify unrelated records.
 
 ### Metrics and labels
 
-SSH/HTTP reports count incoming connection starts. Conpot reports logged
+Mixed-service reports count incoming connection starts. The legacy output folder
+`ssh-http/` and manifest key `ssh_http` are retained for compatibility and can now
+also contain HTTPS and SMB. New reporting configurations contain
+`mixed.protocols`, for example `["https", "smb"]` with
+`mixed.services: ["dionaea"]`. Other/unknown protocol starts are counted as excluded
+from the selected total and remain in `all-connections.json`. Legacy
+configurations without `mixed.protocols` retain all selected-source records.
+
+Dionaea records are identified from their protocol and transport: `httpd/tcp`
+is HTTP, `httpd/tls` is HTTPS, and `smbd/tcp` is SMB. Port numbers alone do not
+establish TLS. A connection-start record does not prove a successful application
+exchange; use external protocol tests for that. Conpot reports logged
 `NEW_CONNECTION` records separately, plus payload/record counts. They are not
 summed into a single connection total. Session timestamps/endpoints in Conpot
 may be reused; window membership uses reported session creation time.

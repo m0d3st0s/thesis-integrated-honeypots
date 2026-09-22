@@ -15,6 +15,18 @@
     },
     {
       "transport": "tcp",
+      "service": "https",
+      "honeypot": "dionaea",
+      "required_script": null
+    },
+    {
+      "transport": "tcp",
+      "service": "smb",
+      "honeypot": "dionaea",
+      "required_script": "smb-protocols"
+    },
+    {
+      "transport": "tcp",
       "service": "modbus",
       "honeypot": "conpot",
       "required_script": "modbus-discover"

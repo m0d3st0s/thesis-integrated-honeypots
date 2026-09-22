@@ -4,7 +4,7 @@ import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from profiler_v3 import profile_scan
+from profiler_v3 import profile_scan, canonical_service
 
 
 def reconcile(folder):
@@ -18,7 +18,7 @@ def reconcile(folder):
         not entries
         or entries[0]["kind"] != "general"
         or sum(item["kind"] == "general" for item in entries) != 1
-        or any(item["kind"] not in ("general", "modbus") for item in entries)
+        or any(item["kind"] not in ("general", "modbus", "smb") for item in entries)
     ):
         raise ValueError("Expected one general scan followed by protocol probes.")
 
@@ -44,7 +44,9 @@ def reconcile(folder):
         if path.resolve().parent != folder:
             raise ValueError("Source XML must remain inside the evidence folder.")
 
-        profile = profile_scan(path, catalog)
+        if entry['kind'] == 'smb' and type(entry.get('port')) is not int:
+            raise ValueError('SMB probe requires its explicit port.')
+        profile = profile_scan(path, catalog, smb_probe_port=entry.get('port') if entry['kind'] == 'smb' else None)
         started = int(profile["scan_started"])
         finished = int(profile["scan_finished"])
         if finished < started:
@@ -64,7 +66,7 @@ def reconcile(folder):
             raise ValueError("Scan contains an undiscovered address.")
         if source_index == 0 and scanned_ips != set(targets):
             raise ValueError("General profile does not cover all discovered hosts.")
-        if entry["kind"] == "modbus" and not scanned_ips:
+        if entry["kind"] in ("modbus", "smb") and not scanned_ips:
             raise ValueError("Protocol probe has no host observations.")
 
         for device in profile["devices"]:
@@ -88,7 +90,7 @@ def reconcile(folder):
                 for item in device["unsupported_open_services"]
             }
 
-            if entry["kind"] == "modbus" and not device["observations"]:
+            if entry["kind"] in ("modbus", "smb") and not device["observations"]:
                 raise ValueError("Protocol probe has no explicit port observations.")
 
             for index, observation in enumerate(device["observations"]):
@@ -107,11 +109,11 @@ def reconcile(folder):
 
                 recommendation = recommendations.get(index)
                 if (
-                    entry["kind"] == "modbus"
+                    entry["kind"] in ("modbus", "smb")
                     and recommendation is not None
-                    and recommendation["service"] != "modbus"
+                    and recommendation["service"] != entry['kind']
                 ):
-                    raise ValueError("Unexpected recommendation from a Modbus probe.")
+                    raise ValueError("Unexpected recommendation from a protocol probe.")
 
                 observation_index = len(combined["observations"])
                 combined["observations"].append({
@@ -134,13 +136,13 @@ def reconcile(folder):
             latest = history[-1]
             confirmed = {
                 (
-                    item["service"].get("name"),
-                    item["service"].get("tunnel"),
+                    canonical_service(item['service']),
                 )
                 for item in history
                 if item["state"] == "open"
                 and item["service"].get("method") == "probed"
             }
+            confirmed.update((item['candidate']['service'],) for item in history if item.get('candidate'))
             states = {item["state"] for item in history}
             reason = None
             if len(states) > 1:

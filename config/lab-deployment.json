@@ -21,6 +21,22 @@
       "container_port": 80
     },
     {
+      "honeypot": "dionaea",
+      "service": "https",
+      "transport": "tcp",
+      "release": "auto-mixed-01",
+      "service_port": 443,
+      "container_port": 443
+    },
+    {
+      "honeypot": "dionaea",
+      "service": "smb",
+      "transport": "tcp",
+      "release": "auto-mixed-01",
+      "service_port": 445,
+      "container_port": 445
+    },
+    {
       "honeypot": "conpot",
       "service": "modbus",
       "transport": "tcp",

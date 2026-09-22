@@ -2,6 +2,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from protocol_support import reporting_protocols
 
 def parse_time(value):
     result = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -13,6 +14,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("feed", type=Path)
 parser.add_argument("--since", required=True)
 parser.add_argument("--until", required=True)
+parser.add_argument('--protocols', help='Optional explicit ssh,http,https,smb selection.')
 args = parser.parse_args()
 
 try:
@@ -20,12 +22,14 @@ try:
     until = parse_time(args.until)
     if since >= until:
         raise ValueError("--since must be earlier than --until.")
+    selected_protocols = reporting_protocols(args.protocols.split(',')) if args.protocols else None
 
     source = json.loads(args.feed.read_text())
     if source.get("schema_version") != 1:
         raise ValueError("Unsupported feed schema.")
 
     connections = []
+    excluded_protocol_connections = 0
     seen = set()
 
     for event in source["connections"]:
@@ -39,7 +43,10 @@ try:
 
         timestamp = parse_time(event["timestamp"])
         if since <= timestamp < until:
-            connections.append(event)
+            if selected_protocols is None or event.get('service') in selected_protocols:
+                connections.append(event)
+            else:
+                excluded_protocol_connections += 1
 
     connections.sort(key=lambda event: parse_time(event["timestamp"]))
 
@@ -93,6 +100,8 @@ try:
             "throughout that window."
         ),
         "metric": "Incoming connections, not HTTP requests or log lines.",
+        "selected_protocols": selected_protocols,
+        "excluded_protocol_connections": excluded_protocol_connections,
         "total_incoming_connections": len(connections),
         "by_service": by_service,
         "connections": connections,

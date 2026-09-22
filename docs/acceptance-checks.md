@@ -1,5 +1,10 @@
 # Installation acceptance checks
 
+These checks cover the original SSH, HTTP and Modbus workflow. For HTTPS and
+repaired SMB1, also follow [HTTPS and SMB](https-smb.md). The separate
+[protocol validation record](protocol-validation.md) documents their live checks;
+the earlier handoff experiment remains scoped to its original protocols and commit.
+
 These checks exercise a deployed installation; they do not run as part of the
 normal reporting timer. Use your actual addresses/releases/ports. Keep transcripts
 and snapshots so conclusions can be checked later. Successful recorded results
