@@ -18,6 +18,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from report_time import day_window, reporting_zone
 
 PROJECT = Path(__file__).resolve().parent
 
@@ -60,6 +61,8 @@ def root_path(value):
 
 
 def initialize(args):
+    zone = getattr(args, 'timezone', 'UTC')
+    reporting_zone(zone)
     network = ipaddress.IPv4Network(args.network, strict=True)
     scanner = ipaddress.IPv4Address(args.scanner_ip)
     excludes = {scanner, *(ipaddress.IPv4Address(ip) for ip in args.exclude)}
@@ -106,7 +109,7 @@ def initialize(args):
     write(workspace / 'labels/conpot.json', dict(schema_version=1, events=[]))
     identity = uuid.uuid4().hex
     write(workspace / 'workspace.json', dict(schema_version=1, identity=identity, kubeconfig=str(kube),
-          created_at=now(), project=str(PROJECT),
+          created_at=now(), project=str(PROJECT), timezone=zone,
           source_layout={'state_root': str(state), 'log_root': str(logs),
                          'namespace': args.namespace, 'mixed_release': args.mixed_release,
                          'conpot_release': args.conpot_release}, limitations=[
@@ -248,7 +251,7 @@ def reporting_settings(workspace, config, prepared):
         expected = layout['conpot_release'] if mapping['honeypot'] == 'conpot' else layout['mixed_release']
         if mapping['release'] != expected:
             raise ValueError('Release mapping changed; use a new workspace.')
-    result = dict(schema_version=2, kubeconfig=config['kubeconfig'], reports_root=str(workspace / 'reports'))
+    result = dict(schema_version=2, kubeconfig=config['kubeconfig'], reports_root=str(workspace / 'reports'), timezone=config.get('timezone', 'UTC'))
     identity = config['identity']
     for request_path in sorted((prepared / 'requests').glob('*.request.json')):
         request = read(request_path)
@@ -352,7 +355,7 @@ def run_workspace(args, workspace, config, env):
                 manifest['status'] = 'reporting'
                 write(run / 'workflow.json', manifest)
                 until = now()
-                since = args.since or datetime.now(timezone.utc).date().isoformat() + 'T00:00:00Z'
+                since = args.since or day_window(config.get('timezone', 'UTC'), instant=datetime.fromisoformat(until), previous=False)[0]
                 stage('report', [sys.executable, str(PROJECT / 'report_config.py'),
                       '--config', str(workspace / 'reporting.json'), '--output', str(run / 'report'), since, until])
                 manifest['status'] = 'completed'
@@ -374,6 +377,7 @@ def main():
     for field in ('network', 'interface', 'scanner-ip', 'node-hostname'):
         init.add_argument('--' + field, required=True)
     init.add_argument('--kubeconfig', type=Path, required=True)
+    init.add_argument('--timezone', default='UTC', help='Calendar timezone for reports and daily schedule.')
     init.add_argument('--exclude', action='append', default=[])
     init.add_argument('--namespace', default='honeypots')
     init.add_argument('--mixed-release', default='mixed-honeypot')
@@ -381,7 +385,7 @@ def main():
     init.add_argument('--state-root', required=True)
     init.add_argument('--log-root', required=True)
     init.add_argument('--honeychart-endpoint', default='http://127.0.0.1:8081/custom_build_endpoint')
-    for command in ('check', 'run', 'report', 'schedule'):
+    for command in ('check', 'run', 'report', 'schedule', 'set-timezone'):
         p = sub.add_parser(command)
         p.add_argument('--workspace', type=Path, required=True)
         if command == 'run':
@@ -392,9 +396,11 @@ def main():
             p.add_argument('--until')
             p.add_argument('--previous-day', action='store_true')
             p.add_argument('--output', type=Path)
+        elif command == 'set-timezone':
+            p.add_argument('--timezone', required=True)
         elif command == 'schedule':
             p.add_argument('--output', type=Path, required=True)
-            p.add_argument('--utc-time', default='00:10')
+            p.add_argument('--time', '--utc-time', dest='utc_time', default='00:10')
             p.add_argument('--install', action='store_true', help='Install validated units and enable timer using sudo.')
     args = parser.parse_args()
     os.umask(0o077)
@@ -403,6 +409,23 @@ def main():
             initialize(args)
             return 0
         workspace, config, env = load_workspace(args.workspace)
+        if args.command == 'set-timezone':
+            reporting_zone(args.timezone)
+            with locked(workspace):
+                active = workspace / 'reporting.json'
+                settings = read(active) if active.exists() else None
+                backup = Path(tempfile.mkdtemp(prefix='timezone-change-', dir=workspace / 'runs'))
+                shutil.copy2(workspace / 'workspace.json', backup / 'workspace.json')
+                if settings is not None:
+                    shutil.copy2(active, backup / 'reporting.json')
+                    settings['timezone'] = args.timezone
+                    write(active, settings)
+                config['timezone'] = args.timezone
+                write(workspace / 'workspace.json', config)
+            print('Reporting timezone:', args.timezone)
+            print('Backup:', backup)
+            print('Regenerate/install the timer using schedule --time; existing timers are not changed here.')
+            return 0
         if args.command == 'check':
             checks = doctor(workspace, config, env)
             print_checks(checks)
@@ -434,10 +457,14 @@ def main():
                 # Generate using the existing validated generator, then route service
                 # through this CLI so scheduled reports share the workspace lock.
                 with locked(workspace):
+                    zone = read(workspace / 'reporting.json').get('timezone', 'UTC')
+                    reporting_zone(zone)
+                    if any(arg == '--utc-time' or arg.startswith('--utc-time=') for arg in sys.argv[1:]) and zone != 'UTC':
+                        raise ValueError('Use --time for a non-UTC timezone.')
                     unit = 'honeypot-report-' + config['identity'][:12]
                     call([sys.executable, str(PROJECT / 'generate_report_units.py'),
                           '--project', str(PROJECT), '--config', str(workspace / 'reporting.json'),
-                          '--output', str(args.output), '--utc-time', args.utc_time, '--name', unit,
+                          '--output', str(args.output), '--time', args.utc_time, '--name', unit,
                           '--python', sys.executable], env=env)
                     from generate_report_units import quoted
                     path = args.output.expanduser().resolve() / (unit + '.service')

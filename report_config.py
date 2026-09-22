@@ -8,6 +8,7 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from report_time import day_window, reporting_zone
 
 
 def load_config(path):
@@ -26,7 +27,9 @@ def load_config(path):
         p = Path(value).expanduser()
         return str((p if p.is_absolute() else path.parent / p).resolve())
 
-    result = {'schema_version': 2, 'reports_root': resolve(string(config, 'reports_root'))}
+    zone = config.get('timezone', 'UTC')
+    reporting_zone(zone)
+    result = {'schema_version': 2, 'reports_root': resolve(string(config, 'reports_root')), 'timezone': zone}
     for name, paths, ids in (
         ('mixed', ('database', 'cowrie_log', 'labels', 'history_root'), ('database_id',)),
         ('conpot', ('log', 'labels'), ('log_id',)),
@@ -88,18 +91,18 @@ def main():
     if args.previous_day:
         if args.since is not None or args.until is not None:
             parser.error('--previous-day cannot be combined with timestamps.')
-        today = datetime.now(timezone.utc).date()
-        args.since = str(today - timedelta(days=1)) + 'T00:00:00Z'
-        args.until = str(today) + 'T00:00:00Z'
+        # Resolve calendar boundaries after loading the configured timezone.
     elif args.since is None or args.until is None:
         parser.error('Supply SINCE UNTIL or --previous-day.')
     status_path = None
     status = None
     try:
         os.umask(0o077)
+        config = load_config(args.config)
+        if args.previous_day:
+            args.since, args.until = day_window(config['timezone'])
         if parse_time(args.since) >= parse_time(args.until):
             raise ValueError('SINCE must be earlier than UNTIL.')
-        config = load_config(args.config)
         if args.output:
             parent = args.output.expanduser().resolve()
             parent.mkdir(parents=True, exist_ok=False)
@@ -111,6 +114,8 @@ def main():
         status_path = parent / 'configured-report-result.json'
         status = {'schema_version': 1, 'status': 'running', 'since': args.since, 'until': args.until,
                   'configuration_source': str(args.config.expanduser().resolve()),
+                  'reporting_timezone': config['timezone'],
+                  'window_basis': 'previous_local_calendar_day' if args.previous_day else 'explicit_timestamps',
                   'limitations': ['Collectors require filesystem access to configured log and database paths.',
                                   'A cluster kubeconfig alone does not provide remote filesystem access.',
                                   'Absent reporting sections are not selected; at most one mixed and one Conpot release are supported.',
@@ -138,6 +143,7 @@ def main():
         env = os.environ.copy()
         if 'kubeconfig' in config:
             env['KUBECONFIG'] = config['kubeconfig']
+        print('Reporting calendar timezone:', config['timezone'], flush=True)
         print('Configured report directory:', parent, flush=True)
         subprocess.run(command, env=env, check=True, timeout=1300)
         manifest = json.loads((parent / 'report/collection-manifest.json').read_text())

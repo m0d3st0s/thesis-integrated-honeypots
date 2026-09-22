@@ -8,6 +8,7 @@ import pwd
 import re
 import subprocess
 from pathlib import Path
+from report_time import reporting_zone
 
 
 def quoted(value):
@@ -25,7 +26,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--user', default=pwd.getpwuid(os.getuid()).pw_name)
     parser.add_argument('--name', default='thesis-daily-report')
-    parser.add_argument('--utc-time', default='00:10', help='Daily UTC time, HH:MM.')
+    parser.add_argument('--time', '--utc-time', dest='utc_time', default='00:10', help='HH:MM in reporting configuration timezone; legacy --utc-time is UTC-only.')
     parser.add_argument('--python', type=Path, default=Path('/usr/bin/python3'))
     parser.add_argument('--tool-path', default='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin')
     args = parser.parse_args()
@@ -38,7 +39,7 @@ def main():
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', args.name):
             raise ValueError('Invalid unit name.')
         if not re.fullmatch(r'(?:[01][0-9]|2[0-3]):[0-5][0-9]', args.utc_time):
-            raise ValueError('UTC time must be HH:MM.')
+            raise ValueError('Time must be HH:MM.')
         project = args.project.expanduser().resolve(strict=True)
         config = args.config.expanduser().resolve(strict=True)
         python = args.python.expanduser().absolute()
@@ -49,13 +50,18 @@ def main():
         settings = json.loads(config.read_text())
         if settings.get('schema_version') != 2:
             raise ValueError('Expected reporting configuration schema version 2.')
+        zone = settings.get('timezone', 'UTC')
+        reporting_zone(zone)
+        import sys
+        if any(arg == '--utc-time' or arg.startswith('--utc-time=') for arg in sys.argv[1:]) and zone != 'UTC':
+            raise ValueError('Use --time for a non-UTC timezone.')
         if not isinstance(settings.get('kubeconfig'), str) or not settings['kubeconfig'].strip():
             raise ValueError('Scheduled reporting requires an explicit kubeconfig in its configuration.')
         if any(not entry.startswith('/') for entry in args.tool_path.split(':')):
             raise ValueError('Every tool PATH entry must be absolute and nonempty.')
         service = '\n'.join([
             '[Unit]',
-            'Description=Generate the previous UTC day\'s configured honeypot report',
+            'Description=Generate the previous configured calendar day\'s configured honeypot report',
             'Wants=network-online.target',
             'After=network-online.target',
             '', '[Service]', 'Type=oneshot',
@@ -69,7 +75,7 @@ def main():
         ])
         timer = '\n'.join([
             '[Unit]', 'Description=Schedule configured daily honeypot reporting',
-            '', '[Timer]', 'OnCalendar=*-*-* ' + args.utc_time + ':00 UTC',
+            '', '[Timer]', 'OnCalendar=*-*-* ' + args.utc_time + ':00 ' + zone,
             'Persistent=true', 'Unit=' + args.name + '.service',
             '', '[Install]', 'WantedBy=timers.target', '',
         ])
@@ -81,7 +87,7 @@ def main():
         timer_path.write_text(timer)
         metadata = {'schema_version': 1, 'status': 'generated', 'user': account.pw_name,
                     'project': str(project), 'reporting_config': str(config),
-                    'utc_time': args.utc_time, 'limitations': [
+                    'local_time': args.utc_time, 'timezone': zone, 'limitations': [
                         'Unit validation does not verify account access to logs or Kubernetes.',
                         'Reporting requires local access to configured source files.',
                         'Persistent timers do not generate one report for every missed day.',
