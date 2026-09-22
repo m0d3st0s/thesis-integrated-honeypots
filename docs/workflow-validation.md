@@ -18,6 +18,12 @@ Prerequisites were already installed and configured.
 - Manual execution of its service returned success and exit status zero,
   reporting the correct previous UTC day.
 
+- Live CLI upgrade passed for both installed releases, revision 1 to 2.
+  Cowrie's checked SSH fingerprint remained unchanged; Dionaea integrity
+  remained ok with one connection row; Conpot remained writable at 969 bytes.
+  Reporting configuration and source identities remained unchanged.
+  Evidence: runs/run-d6gvygok and runs/upgrade-verification-d3OqYvbC.
+
 ## Evidence
 
 Paths below are relative to ~/thesis/user-workflow unless stated otherwise.
@@ -34,8 +40,7 @@ Paths below are relative to ~/thesis/user-workflow unless stated otherwise.
 
 - First automatic timer execution remains unverified.
 - A clean handoff using only shipped instructions remains unverified.
-- The new CLI upgrade route has offline coverage but has not yet been
-  exercised live in this workspace.
+
 - Protocol responses and report counts were observed; this entry does not
   claim a new detailed per-record client/server correlation.
 - This test does not establish compatibility with all Linux distributions,
