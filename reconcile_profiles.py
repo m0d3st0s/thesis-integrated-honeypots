@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from profiler_v3 import profile_scan, canonical_service
+from device_profile import describe
 
 
 def reconcile(folder):
@@ -77,10 +78,14 @@ def reconcile(folder):
                     "device_type": "undetermined",
                     "observations": [],
                     "endpoints": {},
+                    "host_evidence_sources": [],
                     "summarized_port_states": device["summarized_port_states"],
                 }
 
             combined = devices[ip]
+            combined["host_evidence_sources"].append({
+                "source_index": source_index, "evidence": device["host_evidence"],
+            })
             recommendations = {
                 item["observation_index"]: item
                 for item in device["recommendations"]
@@ -183,6 +188,7 @@ def reconcile(folder):
         output_devices.append({
             "ip": ip,
             "device_type": "undetermined",
+            "device_profile": describe(device["host_evidence_sources"], device["observations"], unresolved),
             "profile": (
                 "+".join(protocols) + "-enabled-host"
                 if protocols else "unclassified"

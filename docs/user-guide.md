@@ -68,6 +68,11 @@ Selection rules live in `catalog.json`; deployment mappings in `deployment.json`
 HoneyChart, image-pin location and node placement in `runtime.json`.
 Changing a catalog alone does not implement an additional supported recipe.
 
+Profiles also include a descriptive OS-family assessment and multiple host roles,
+with evidence and explicit unknown/conflicting results. These fields do not affect
+honeypot selection. See [device profiling](device-profiling.md) for the rules and
+the read-only `describe_devices.py` command for existing discovery evidence.
+
 HTTPS and repaired SMB1 passed the [recorded lab checks](protocol-validation.md).
 Follow [their validation guide](https-smb.md) for your installation, with a fresh workspace and dedicated
 release/storage names. Updating project files does not migrate existing

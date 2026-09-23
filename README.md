@@ -4,6 +4,12 @@ A Linux command-line research prototype that discovers network services, selects
 supported honeypots, generates and validates Helm charts through HoneyChart,
 deploys them to Kubernetes, and collects reports from their persistent data.
 
+Each host also receives a [descriptive device profile](docs/device-profiling.md):
+an OS-family assessment, multiple functional roles, identity observations and
+supporting evidence. Unknown or conflicting OS evidence stays unresolved.
+Classification is descriptive only; confirmed service evidence still determines
+honeypot selection. Physical device types and exact device emulation are not inferred.
+
 | Observed service | Honeypot recipe | Validation status |
 | --- | --- | --- |
 | SSH | Cowrie | Live lab acceptance passed |

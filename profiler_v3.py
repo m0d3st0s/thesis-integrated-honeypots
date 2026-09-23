@@ -3,6 +3,7 @@ import ipaddress
 import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from device_profile import host_evidence, describe
 
 
 def preserve_element(element):
@@ -140,6 +141,7 @@ def profile_scan(scan_path, catalog_path, *, smb_probe_port=None):
                     state.get("state") if state is not None else "unknown"
                 ),
                 "service": service,
+                "service_cpes": [item.text for item in port.findall('./service/cpe') if item.text],
                 "scripts": [
                     preserve_element(script)
                     for script in port.findall("script")
@@ -191,8 +193,11 @@ def profile_scan(scan_path, catalog_path, *, smb_probe_port=None):
                 })
 
         protocols = sorted({r["service"] for r in recommendations})
+        identity = host_evidence(host)
         devices.append({
             "ip": ip,
+            "host_evidence": identity,
+            "device_profile": describe([{"source_index": 0, "evidence": identity}], observations),
             "profile": (
                 "+".join(protocols) + "-enabled-host"
                 if protocols else "unclassified"
