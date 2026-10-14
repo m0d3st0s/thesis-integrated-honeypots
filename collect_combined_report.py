@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from export_conpot import export_log
+from service_exposure import endpoint_summary
 
 
 def now():
@@ -170,6 +171,8 @@ def main():
             "-o", "json",
         ], section / "pods.json")
         metadata["metadata_finished_at"] = now()
+        metadata["exposure"] = endpoint_summary(json.loads((section / "service.json").read_text()))
+        write_json(section / "service-exposure.json", metadata["exposure"])
 
         snapshot = section / "conpot-snapshot.jsonl"
         metadata["snapshot"] = snapshot_log(
@@ -235,6 +238,14 @@ def main():
             lines.append(title)
             if manifest["sections"][key]["status"] == "completed":
                 lines.append(path.read_text())
+                if key == "modbus":
+                    exposure = json.loads((folder / "modbus/service-exposure.json").read_text())
+                    lines.append("Service type: " + exposure['service_type'])
+                    for port in exposure['ports']:
+                        lines.append("Service port %s; NodePort %s; LoadBalancer %s" % (
+                            port['service_port'], port['node_port'] if port['node_port'] is not None else 'not allocated',
+                            ', '.join(port['load_balancer_endpoints']) or 'none assigned'))
+                    lines.append(exposure['meaning'])
             elif manifest["sections"][key]["status"] == "not_selected":
                 lines.append("NOT SELECTED: excluded by configuration; no zero count inferred.")
             else:

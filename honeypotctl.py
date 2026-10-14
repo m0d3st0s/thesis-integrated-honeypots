@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from report_time import day_window, reporting_zone
+from service_exposure import validate_config, check_metallb
 
 PROJECT = Path(__file__).resolve().parent
 
@@ -95,6 +96,21 @@ def initialize(args):
     deployment.update(namespace=args.namespace, log_root=str(logs))
     for mapping in deployment['mappings']:
         mapping['release'] = args.conpot_release if mapping['honeypot'] == 'conpot' else args.mixed_release
+    deployment['service_type'] = getattr(args, 'service_type', 'NodePort')
+    options = [getattr(args, key, None) for key in ('metallb_pool', 'mixed_lb_ip', 'conpot_lb_ip')]
+    if deployment['service_type'] == 'LoadBalancer':
+        deployment['load_balancer'] = {'address_pool': options[0],
+            'ips': {args.mixed_release: options[1], args.conpot_release: options[2]}}
+    elif any(value is not None for value in options):
+        raise ValueError('MetalLB options require --service-type LoadBalancer.')
+    exposure = validate_config(deployment)
+    for settings in exposure.values():
+        address = ipaddress.IPv4Address(settings['ip'])
+        if address in excludes or address in (network.network_address, network.broadcast_address):
+            raise ValueError('LoadBalancer IP conflicts with a scanner/exclusion or network boundary.')
+        if address in network:
+            excludes.add(address)
+    scan['exclude_ips'] = [str(ip) for ip in sorted(excludes)]
     pins = (PROJECT / 'image-pins.yaml').read_bytes()
     runtime = dict(schema_version=1, honeychart_endpoint=args.honeychart_endpoint,
                    state_root=str(state), node_hostname=args.node_hostname, image_pins='image-pins.yaml')
@@ -205,6 +221,8 @@ def doctor(workspace, config, env, *, scan_checks=True):
                 'Additional egress allowances exist; review the namespace policy before using this workflow.')
         return 'Default-deny policy present. This check does not prove enforcement.'
     check('outbound policy configuration', policy_check)
+    check('Service exposure configuration', lambda: check_metallb(
+        deployment, scan, lambda command: json.loads(output(command, env=env))))
     if scan_checks:
         def nmap_script():
             value = output(['nmap', '--script-help', 'modbus-discover'], env=env)
@@ -387,6 +405,10 @@ def main():
     init.add_argument('--kubeconfig', type=Path, required=True)
     init.add_argument('--timezone', default='UTC', help='Calendar timezone for reports and daily schedule.')
     init.add_argument('--exclude', action='append', default=[])
+    init.add_argument('--service-type', choices=('NodePort', 'LoadBalancer'), default='NodePort')
+    init.add_argument('--metallb-pool', help='Existing MetalLB IPAddressPool with reserved addresses.')
+    init.add_argument('--mixed-lb-ip', help='Reserved IPv4 address for the mixed release.')
+    init.add_argument('--conpot-lb-ip', help='Distinct reserved IPv4 address for the Modbus release.')
     init.add_argument('--namespace', default='honeypots')
     init.add_argument('--mixed-release', default='mixed-honeypot')
     init.add_argument('--conpot-release', default='modbus-honeypot')

@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from build_plan_v2 import build_plan
+from service_exposure import request_exposure
 
 
 def make_requests(plan):
@@ -52,12 +53,15 @@ def make_requests(plan):
                 "name": name,
                 "service": {
                     "type": release["service_type"],
-                    "lbIp": None,
+                    "lbIp": release.get("load_balancer", {}).get("ip"),
+                    **({"loadBalancer": release["load_balancer"]} if "load_balancer" in release else {}),
                 },
                 "replicaCount": 1,
                 "honeypots": honeypots,
             },
         })
+    for item in requests:
+        request_exposure(item["payload"])
     return requests
 
 

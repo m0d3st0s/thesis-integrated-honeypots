@@ -132,3 +132,10 @@ pinned HoneyChart reconstruction inputs and Conpot recipe assets;
 `deploy.sh`, earlier versioned pipeline scripts, and checked-in `systemd/` units
 are legacy lab entry points/examples. Use the workspace CLI for a new installation.
 Do not copy the original lab's controlled-test labels into a new workspace.
+
+## LoadBalancer option
+
+NodePort remains the default. New workspaces can select MetalLB IPv4 Layer 2
+LoadBalancer exposure with reserved IPs per release. See
+[LoadBalancer setup and acceptance](docs/loadbalancer.md) for prerequisites,
+configuration, endpoint reporting and the recorded live lab validation.

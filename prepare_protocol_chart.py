@@ -2,6 +2,7 @@ import argparse
 import json
 import re
 from pathlib import Path
+from service_exposure import request_exposure, service_template
 from protocol_support import requested_listeners
 from smb_repair_chart import repair_assets
 
@@ -16,8 +17,8 @@ def prepare(chart, request_path, state_root, node_hostname):
         or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,18}[a-z0-9]", release)
     ):
         raise ValueError("Invalid or mismatched release name.")
-    if request["service"]["type"] != "NodePort":
-        raise ValueError("This recipe currently requires NodePort.")
+    service_kind, _ = request_exposure(request)
+    final_service = service_template(request)
     if not node_hostname or len(node_hostname) > 63:
         raise ValueError("A valid node hostname label is required.")
     if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?", node_hostname):
@@ -69,7 +70,7 @@ def prepare(chart, request_path, state_root, node_hostname):
         "replicaCount": 1,
         "autoscaling": {"enabled": False},
         "serviceAccount": {"automount": False},
-        "service": {"type": "NodePort", "extTrafficPolicy": "Local"},
+        "service": {"type": service_kind, "extTrafficPolicy": "Local"},
         "nodeSelector": {"kubernetes.io/hostname": node_hostname},
         "volumes": {},
         "honeypots": {},
@@ -164,6 +165,8 @@ def prepare(chart, request_path, state_root, node_hostname):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
     template.write_text(updated)
+    if service_kind == "LoadBalancer":
+        (chart / "templates/service.yaml").write_text(final_service)
     if test.exists():
         test.rename(saved_test)
 

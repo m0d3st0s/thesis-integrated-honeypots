@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from check_protocol_runtime import wait_for_runtime
 
-REQUEST = {'name': 'protocol-mixed', 'honeypots': {'names': ['dionaea', 'cowrie'],
+REQUEST = {'name': 'protocol-mixed', 'service': {'type': 'NodePort'}, 'honeypots': {'names': ['dionaea', 'cowrie'],
     'dionaea': {'services': [{'http': 80}, {'https': 443}, {'smb': 445}],
                 'containerports': [80, 443, 445], 'protocols': ['TCP'] * 3},
     'cowrie': {'services': [{'ssh': 22}], 'containerports': [2222], 'protocols': ['TCP']}}}

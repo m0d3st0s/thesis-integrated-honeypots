@@ -160,7 +160,7 @@ def main():
                 save()
                 request_path = prepared / 'requests' / (name + '.request.json')
                 selected = set(json.loads(request_path.read_text())['honeypots']['names'])
-                if selected <= {'cowrie', 'dionaea'}:
+                if selected <= {'cowrie', 'dionaea'} or selected == {'conpot'}:
                     subprocess.run([sys.executable, str(project / 'check_protocol_runtime.py'),
                                     '--request', str(request_path), '--namespace', namespace,
                                     '--output', str(release_dir / 'protocol-runtime.json')], check=True, timeout=120)

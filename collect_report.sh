@@ -286,19 +286,25 @@ python3 "$PROJECT_DIR/window_feed.py" \
     "${PROTOCOL_ARGS[@]}" \
     > "$REPORT_DIR/window-feed.json"
 
-python3 - "$REPORT_DIR" <<'PY'
+python3 - "$REPORT_DIR" "$PROJECT_DIR" <<'PY'
 import json
 import sys
 from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+from service_exposure import endpoint_summary
 
 folder = Path(sys.argv[1])
 report = json.loads((folder / "window-feed.json").read_text())
 service = json.loads((folder / "service.json").read_text())
 ports = {p["name"]: p for p in service["spec"]["ports"]}
+exposure = endpoint_summary(service)
+(folder / "service-exposure.json").write_text(json.dumps(exposure, indent=2) + "\n")
 
 lines = [
     "HONEYPOT INTERACTION REPORT",
     "Deployment: " + report["deployment"],
+    "Service type: " + exposure["service_type"],
+    "LoadBalancer addresses: " + (", ".join(exposure["load_balancer_addresses"]) or "none assigned"),
     "Selected sources: " + ", ".join(json.loads((folder / "collection.json").read_text())["selected_honeypots"]),
     "Protocol scope: " + (", ".join(report["selected_protocols"]) if report.get("selected_protocols") else "all records from selected sources (legacy configuration)"),
     "Since (inclusive): " + report["window"]["since_inclusive"],
@@ -312,15 +318,18 @@ lines = [
 
 for group in report["by_service"]:
     mapping = ports.get(group["service"], {})
+    external = ", ".join(f"{address}:{mapping.get('port', 'unknown')}" for address in exposure['load_balancer_addresses'])
+    suffix = "; LoadBalancer " + (external or "pending") if exposure['service_type'] == 'LoadBalancer' else ""
     lines.append(
         "{service}: {count} connections; {tests} controlled tests; "
-        "{other} unclassified; service port {port}; NodePort {node}".format(
+        "{other} unclassified; service port {port}; NodePort {node}{suffix}".format(
             service=group["service"].upper(),
             count=group["incoming_connections"],
             tests=group["controlled_test_connections"],
             other=group["unclassified_connections"],
             port=mapping.get("port", "unknown"),
-            node=mapping.get("nodePort", "unknown"),
+            node=mapping.get("nodePort", "not allocated"),
+            suffix=suffix,
         )
     )
 

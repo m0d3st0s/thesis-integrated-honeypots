@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from service_exposure import request_exposure, service_template
 
 
 def prepare(chart, request_path, assets):
@@ -15,8 +16,8 @@ def prepare(chart, request_path, assets):
         raise ValueError("Request name and chart directory do not match.")
     if request["honeypots"]["names"] != ["conpot"]:
         raise ValueError("This recipe requires a Conpot-only chart.")
-    if request["service"]["type"] != "NodePort":
-        raise ValueError("This recipe currently requires NodePort.")
+    service_kind, _ = request_exposure(request)
+    final_service = service_template(request)
 
     conpot = request["honeypots"]["conpot"]
     if (
@@ -215,7 +216,7 @@ def prepare(chart, request_path, assets):
         "serviceAccount": {"automount": False},
         "replicaCount": 1,
         "autoscaling": {"enabled": False},
-        "service": {"type": "NodePort", "extTrafficPolicy": "Local"},
+        "service": {"type": service_kind, "extTrafficPolicy": "Local"},
         "volumes": {
             "conpotmountPath": "/conpot-json-logs",
             "conpothostPath": str(log_path),
@@ -245,6 +246,8 @@ def prepare(chart, request_path, assets):
         (chart / name).write_text(text)
     values_path.write_text(json.dumps(values, indent=2) + "\n")
     template.write_text(updated)
+    if service_kind == "LoadBalancer":
+        (chart / "templates/service.yaml").write_text(final_service)
     if test.exists():
         test.rename(saved_test)
 

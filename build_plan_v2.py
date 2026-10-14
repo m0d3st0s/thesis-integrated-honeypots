@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from reconcile_profiles import reconcile
+from service_exposure import validate_config
 
 
 def valid_name(value):
@@ -24,8 +25,10 @@ def build_plan(evidence, config_path):
         raise ValueError("Unsupported deployment configuration schema.")
     if not valid_name(config.get("namespace")):
         raise ValueError("Invalid namespace.")
-    if config.get("service_type") != "NodePort":
-        raise ValueError("This planner currently supports NodePort Services.")
+    exposure = validate_config(config)
+    reserved = {item["ip"] for item in exposure.values()}
+    if any(device["ip"] in reserved for device in profile["devices"]):
+        raise ValueError("A requested LoadBalancer IP appears among scanned targets; reserve and exclude it first.")
 
     log_root = Path(config["log_root"])
     if not log_root.is_absolute() or ".." in log_root.parts:
@@ -99,6 +102,8 @@ def build_plan(evidence, config_path):
             "service_type": config["service_type"],
             "services": [],
         })
+        if exposure:
+            release["load_balancer"] = exposure[group["release"]]
         release["services"].append(group)
 
     # HoneyChart places the selected containers in a shared Pod.

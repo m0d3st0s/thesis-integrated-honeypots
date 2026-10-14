@@ -1,4 +1,4 @@
-"""Read-only Service/listener checks after installing or upgrading mixed recipes.
+"""Read-only Service/listener checks for mixed and Conpot recipes.
 
 These checks create no test connections. They do not replace external TLS/SMB
 exchanges. /proc/net/tcp describes the shared pod network namespace.
@@ -11,6 +11,7 @@ import subprocess
 import time
 from pathlib import Path
 from protocol_support import requested_listeners
+from service_exposure import request_exposure, endpoint_summary
 
 
 SOCKET_CODE = r'''
@@ -36,19 +37,41 @@ def get_json(argv, timeout=60):
 
 
 def verify(request, namespace, capture=get_json):
-    selected = requested_listeners(request)
+    if request['honeypots']['names'] == ['conpot']:
+        item = request['honeypots']['conpot']
+        if (len(item['services']) != 1 or set(item['services'][0]) != {'modbus'}
+                or item['containerports'] != [5020] or item['protocols'] != ['TCP']):
+            raise ValueError('Invalid Conpot listener request.')
+        port = item['services'][0]['modbus']
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError('Invalid Modbus Service port.')
+        selected = {'conpot': [('modbus', port, 5020)]}
+    else:
+        selected = requested_listeners(request)
+    kind, annotations = request_exposure(request)
     name = request['name']
     service = capture(['kubectl', 'get', 'service', name, '-n', namespace, '-o', 'json'])
     spec = service['spec']
     expected = {s: (port, listener) for items in selected.values() for s, port, listener in items}
     actual = {p['name']: p for p in spec['ports']}
-    if spec.get('type') != 'NodePort' or spec.get('externalTrafficPolicy') != 'Local' or set(actual) != set(expected):
+    if spec.get('type') != kind or spec.get('externalTrafficPolicy') != 'Local' or set(actual) != set(expected):
         raise ValueError('Service type, traffic policy or selected port names differ from the request.')
     for protocol, (port, listener) in expected.items():
         p = actual[protocol]
         if (p['port'] != port or p['targetPort'] != listener or p.get('protocol', 'TCP') != 'TCP'
                 or type(p.get('nodePort')) is not int):
             raise ValueError('Unexpected live Service mapping for ' + protocol)
+    if kind == 'LoadBalancer':
+        if spec.get('allocateLoadBalancerNodePorts') is not True:
+            raise ValueError('Unexpected LoadBalancer NodePort allocation setting.')
+        actual_annotations = service.get('metadata', {}).get('annotations', {})
+        if any(actual_annotations.get(key) != value for key, value in annotations.items()):
+            raise ValueError('Live MetalLB pool/IP annotations differ from the request.')
+        addresses = endpoint_summary(service)['load_balancer_addresses']
+        if not addresses:
+            raise RuntimeNotReady('LoadBalancer address is pending; inspect MetalLB allocation/events.')
+        if set(addresses) != {request['service']['lbIp']}:
+            raise ValueError('Assigned LoadBalancer address differs from the reserved request.')
     pods = capture(['kubectl', 'get', 'pods', '-n', namespace, '-l', 'app.kubernetes.io/instance=' + name, '-o', 'json'])
     active = [p for p in pods['items'] if not p['metadata'].get('deletionTimestamp')]
     if len(active) != 1 or not any(c['type'] == 'Ready' and c['status'] == 'True' for c in active[0]['status'].get('conditions', [])):
@@ -56,21 +79,21 @@ def verify(request, namespace, capture=get_json):
     pod = active[0]
     ip = pod['status']['podIP']
     ip_hex = ipaddress.IPv4Address(ip).packed[::-1].hex().upper()
-    hp = 'dionaea' if 'dionaea' in selected else 'cowrie'
-    python = 'python3' if hp == 'dionaea' else '/cowrie/cowrie-env/bin/python3'
+    hp = 'conpot' if 'conpot' in selected else ('dionaea' if 'dionaea' in selected else 'cowrie')
+    python = '/cowrie/cowrie-env/bin/python3' if hp == 'cowrie' else 'python3'
     sockets = capture(['kubectl', 'exec', '-n', namespace, pod['metadata']['name'], '-c', hp, '--', python, '-c', SOCKET_CODE])
     bound = {s['port'] for s in sockets if s['address_hex'] in ('00000000', ip_hex)}
     missing = sorted({listener for _, listener in expected.values()} - bound)
     if missing:
         raise RuntimeNotReady('Selected IPv4 listeners are not bound on the pod: ' + str(missing))
     return {'status': 'passed', 'release': name, 'pod': pod['metadata']['name'],
-            'pod_ip': ip, 'service_ports': list(actual.values()), 'listeners': sockets,
+            'exposure': endpoint_summary(service), 'pod_ip': ip, 'service_ports': list(actual.values()), 'listeners': sockets,
             'note': 'Passive pod-network listener checks; external protocol response and logging acceptance remain separate.'}
 
 
 def wait_for_runtime(request, namespace, timeout=90, interval=2, *, capture=None,
                      clock=time.monotonic, pause=time.sleep, announce=None):
-    """Retry only readiness/listener startup, under one overall deadline.
+    """Retry readiness/listener startup and pending LB assignment under a deadline.
 
     Incorrect mappings, malformed responses and failed kubectl commands remain
     immediate errors. Each attempt re-reads the Service and current pod/IP.
